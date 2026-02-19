@@ -37,6 +37,8 @@ pub struct SessionHandle {
     config: WebDriverConfig,
     /// quit session flag
     quit: Arc<OnceCell<()>>,
+    /// The WebSocket URL for BiDi connections.
+    pub websocket_url: Option<String>,
 }
 
 impl Debug for SessionHandle {
@@ -44,6 +46,7 @@ impl Debug for SessionHandle {
         f.debug_struct("SessionHandle")
             .field("session_id", &self.session_id)
             .field("config", &self.config)
+            .field("websocket_url", &self.websocket_url)
             .finish()
     }
 }
@@ -55,7 +58,7 @@ impl SessionHandle {
         server_url: impl IntoUrl,
         session_id: SessionId,
     ) -> WebDriverResult<Self> {
-        Self::new_with_config(client, server_url, session_id, WebDriverConfig::default())
+        Self::new_with_config(client, server_url, session_id, None, WebDriverConfig::default())
     }
 
     /// Create new `SessionHandle` with the specified `WebDriverConfig`.
@@ -63,6 +66,7 @@ impl SessionHandle {
         client: Arc<dyn HttpClient>,
         server_url: impl IntoUrl,
         session_id: SessionId,
+        websocket_url: Option<String>,
         config: WebDriverConfig,
     ) -> WebDriverResult<Self> {
         Ok(Self {
@@ -71,6 +75,7 @@ impl SessionHandle {
             session_id,
             config,
             quit: Arc::new(OnceCell::new()),
+            websocket_url,
         })
     }
 
@@ -84,6 +89,7 @@ impl SessionHandle {
             session_id: self.session_id.clone(),
             quit: Arc::clone(&self.quit),
             config,
+            websocket_url: self.websocket_url.clone(),
         }
     }
 
@@ -1236,6 +1242,7 @@ impl Drop for SessionHandle {
             quit: Arc::clone(&self.quit),
             session_id: self.session_id.clone(),
             config: self.config.clone(),
+            websocket_url: self.websocket_url.clone(),
         });
 
         support::spawn_blocked_future(|spawned| async move {

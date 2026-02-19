@@ -117,9 +117,11 @@ impl WebDriver {
             .map_err(|e| WebDriverError::ParseError(format!("invalid url: {e}")))?;
 
         let client = Arc::new(client);
-        let session_id = start_session(client.as_ref(), &server_url, &config, capabilities).await?;
+        let (session_id, ws_url) =
+            start_session(client.as_ref(), &server_url, &config, capabilities).await?;
 
-        let handle = SessionHandle::new_with_config(client, server_url, session_id, config)?;
+        let handle =
+            SessionHandle::new_with_config(client, server_url, session_id, ws_url, config)?;
         Ok(Self {
             handle: Arc::new(handle),
         })
