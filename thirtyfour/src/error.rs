@@ -285,6 +285,8 @@ webdriver_err! {
         CommandSendError(String),
         #[error("Could not create session: {0}")]
         SessionCreateError(String),
+        #[error("BiDi error: {0}")]
+        BiDi(String),
     }
 }
 
@@ -409,5 +411,23 @@ impl From<reqwest::Error> for WebDriverError {
 impl From<serde_json::Error> for WebDriverError {
     fn from(err: serde_json::Error) -> Self {
         WebDriverError::Json(err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bidi_error_variant() {
+        let err = WebDriverError::BiDi("connection refused".to_string());
+        assert!(err.to_string().contains("BiDi error: connection refused"));
+    }
+}
+
+#[cfg(feature = "bidi")]
+impl From<tokio_tungstenite::tungstenite::Error> for WebDriverError {
+    fn from(err: tokio_tungstenite::tungstenite::Error) -> Self {
+        WebDriverError::BiDi(err.to_string())
     }
 }
