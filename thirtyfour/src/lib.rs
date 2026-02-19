@@ -173,11 +173,6 @@ pub use common::{
 };
 pub use switch_to::SwitchTo;
 pub use web_driver::WebDriver;
-#[cfg(feature = "selenium-manager")]
-pub use web_driver_process::{
-    start_webdriver_process, start_webdriver_process_full, WebDriverProcess,
-    WebDriverProcessBrowser, WebDriverProcessPort,
-};
 pub use web_element::WebElement;
 
 /// Allow importing the common types via `use thirtyfour::prelude::*`.
@@ -186,8 +181,6 @@ pub mod prelude {
     pub use crate::error::{WebDriverError, WebDriverResult};
     pub use crate::extensions::query::{ElementPoller, ElementQueryable, ElementWaitable};
     pub use crate::session::scriptret::ScriptRet;
-    #[cfg(feature = "selenium-manager")]
-    pub use crate::start_webdriver_process;
     pub use crate::switch_to::SwitchTo;
     pub use crate::WebDriver;
     pub use crate::WebElement;
@@ -218,8 +211,6 @@ pub mod support;
 mod js;
 mod switch_to;
 mod web_driver;
-#[cfg(feature = "selenium-manager")]
-mod web_driver_process;
 mod web_element;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
