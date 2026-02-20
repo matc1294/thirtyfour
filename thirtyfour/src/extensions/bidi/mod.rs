@@ -204,7 +204,7 @@ impl BiDiSession {
         self.ws_sink
             .lock()
             .await
-            .send(Message::Text(text.into()))
+            .send(Message::Text(text))
             .await
             .map_err(|e| WebDriverError::BiDi(format!("WebSocket send failed: {e}")))?;
 

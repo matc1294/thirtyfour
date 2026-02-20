@@ -129,9 +129,10 @@ pub enum ElementQuerySource {
 }
 
 /// Options for wait characteristics for an element query.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum ElementQueryWaitOptions {
     /// Use the default poller.
+    #[default]
     WaitDefault,
     /// Use a poller with the specified timeout and interval.
     Wait {
@@ -142,12 +143,6 @@ pub enum ElementQueryWaitOptions {
     },
     /// Do not wait. This uses a poller that quits immediately.
     NoWait,
-}
-
-impl Default for ElementQueryWaitOptions {
-    fn default() -> Self {
-        Self::WaitDefault
-    }
 }
 
 /// All options applicable to an ElementQuery.
