@@ -157,6 +157,35 @@ impl WebDriver {
     pub fn leak(self) -> Result<(), AlreadyQuit> {
         self.handle.leak()
     }
+
+    #[cfg(feature = "bidi")]
+    /// Connect to the WebDriver BiDi channel.
+    ///
+    /// Requires the browser to have been started with BiDi capabilities enabled.
+    /// For Chrome, set `"webSocketUrl": true` in capabilities.
+    /// For Firefox, BiDi is enabled by default in supported versions.
+    ///
+    /// Returns a [`BiDiSession`][crate::extensions::bidi::BiDiSession] that can be
+    /// used to interact with the browser via the BiDi protocol.
+    ///
+    /// # Errors
+    ///
+    /// Returns `WebDriverError::BiDi` if:
+    /// - The browser did not return a `webSocketUrl` in session capabilities
+    /// - The WebSocket connection fails
+    pub async fn bidi_connect(
+        &self,
+    ) -> crate::error::WebDriverResult<crate::extensions::bidi::BiDiSession> {
+        let ws_url = self.handle.websocket_url.as_deref().ok_or_else(|| {
+            crate::prelude::WebDriverError::BiDi(
+                "No webSocketUrl in session capabilities. \
+                 Enable BiDi in your browser capabilities \
+                 (e.g., for Chrome: set 'webSocketUrl: true')."
+                    .to_string(),
+            )
+        })?;
+        crate::extensions::bidi::BiDiSession::connect(ws_url).await
+    }
 }
 
 /// The Deref implementation allows the WebDriver to "fall back" to SessionHandle and
