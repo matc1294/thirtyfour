@@ -203,6 +203,10 @@ pub mod components;
 pub mod error;
 /// Extensions for specific browsers.
 pub mod extensions;
+
+#[cfg(feature = "bidi")]
+/// Re-export BiDi types for convenience.
+pub use extensions::bidi::{BiDiEvent, BiDiSession};
 /// Everything related to driving the underlying WebDriver session.
 pub mod session;
 /// Miscellaneous support functions for `thirtyfour` tests.

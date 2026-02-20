@@ -117,3 +117,8 @@ name = "shadowroot"
 [[example]]
 name = "playground"
 path = "examples/components/playground.rs"
+
+[[example]]
+name = "bidi_network_intercept"
+path = "examples/bidi_network_intercept.rs"
+required-features = ["bidi"]
