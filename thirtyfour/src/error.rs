@@ -414,6 +414,13 @@ impl From<serde_json::Error> for WebDriverError {
     }
 }
 
+#[cfg(feature = "bidi")]
+impl From<tokio_tungstenite::tungstenite::Error> for WebDriverError {
+    fn from(err: tokio_tungstenite::tungstenite::Error) -> Self {
+        WebDriverError::BiDi(err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,12 +429,5 @@ mod tests {
     fn test_bidi_error_variant() {
         let err = WebDriverError::BiDi("connection refused".to_string());
         assert!(err.to_string().contains("BiDi error: connection refused"));
-    }
-}
-
-#[cfg(feature = "bidi")]
-impl From<tokio_tungstenite::tungstenite::Error> for WebDriverError {
-    fn from(err: tokio_tungstenite::tungstenite::Error) -> Self {
-        WebDriverError::BiDi(err.to_string())
     }
 }
