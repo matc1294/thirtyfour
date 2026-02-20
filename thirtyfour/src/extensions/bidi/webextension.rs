@@ -2,6 +2,7 @@ use super::BiDiSession;
 use crate::error::WebDriverResult;
 
 /// BiDi `webExtension` domain accessor.
+#[derive(Debug)]
 pub struct WebExtension<'a> {
     session: &'a BiDiSession,
 }

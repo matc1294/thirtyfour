@@ -2,6 +2,7 @@ use super::BiDiSession;
 use crate::error::WebDriverResult;
 
 /// BiDi CDP passthrough domain accessor.
+#[derive(Debug)]
 pub struct Cdp<'a> {
     session: &'a BiDiSession,
 }

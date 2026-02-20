@@ -2,6 +2,7 @@ use super::BiDiSession;
 use crate::error::WebDriverResult;
 
 /// BiDi `emulation` domain accessor.
+#[derive(Debug)]
 pub struct Emulation<'a> {
     session: &'a BiDiSession,
 }

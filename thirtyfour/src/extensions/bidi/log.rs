@@ -1,5 +1,4 @@
 use super::{BiDiEvent, BiDiSession};
-use crate::error::WebDriverResult;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
@@ -41,6 +40,7 @@ pub enum LogEvent {
 pub struct ConsoleEvent(pub LogEntry);
 
 /// BiDi `log` domain accessor.
+#[derive(Debug)]
 pub struct Log<'a> {
     session: &'a BiDiSession,
 }

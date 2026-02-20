@@ -14,6 +14,7 @@ pub enum PermissionState {
 }
 
 /// BiDi `permissions` domain accessor.
+#[derive(Debug)]
 pub struct Permissions<'a> {
     session: &'a BiDiSession,
 }

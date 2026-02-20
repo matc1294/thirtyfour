@@ -62,6 +62,7 @@ pub struct NavigationInfo {
 }
 
 /// BiDi `browsingContext` domain accessor.
+#[derive(Debug)]
 pub struct BrowsingContext<'a> {
     session: &'a BiDiSession,
 }

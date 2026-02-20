@@ -1,6 +1,6 @@
 use super::BiDiSession;
 use crate::error::WebDriverResult;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// Script domain events.
 #[derive(Debug, Clone, Deserialize)]
@@ -49,6 +49,7 @@ pub struct EvaluateResult {
 }
 
 /// BiDi `script` domain accessor.
+#[derive(Debug)]
 pub struct Script<'a> {
     session: &'a BiDiSession,
 }

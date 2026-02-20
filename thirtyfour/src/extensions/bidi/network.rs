@@ -163,6 +163,7 @@ pub struct AuthRequiredParams {
 }
 
 /// BiDi `network` domain accessor.
+#[derive(Debug)]
 pub struct Network<'a> {
     session: &'a BiDiSession,
 }

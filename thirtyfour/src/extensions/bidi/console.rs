@@ -3,6 +3,7 @@ use super::{BiDiEvent, BiDiSession};
 use tokio::sync::broadcast;
 
 /// BiDi `console` domain accessor (thin wrapper over log.entryAdded events with console source).
+#[derive(Debug)]
 pub struct Console<'a> {
     session: &'a BiDiSession,
 }

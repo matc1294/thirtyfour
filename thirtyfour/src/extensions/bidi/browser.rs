@@ -11,6 +11,7 @@ pub struct UserContextInfo {
 }
 
 /// BiDi `browser` domain accessor.
+#[derive(Debug)]
 pub struct Browser<'a> {
     session: &'a BiDiSession,
 }

@@ -2,6 +2,7 @@ use super::BiDiSession;
 use crate::error::WebDriverResult;
 
 /// BiDi `session` domain accessor.
+#[derive(Debug)]
 pub struct Session<'a> {
     session: &'a BiDiSession,
 }
