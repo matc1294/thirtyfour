@@ -23,7 +23,11 @@ impl<'a> WebExtension<'a> {
             }
         });
         let result = self.session.send_command("webExtension.install", params).await?;
-        Ok(result["extension"].as_str().unwrap_or("").to_string())
+        result["extension"].as_str().map(String::from).ok_or_else(|| {
+            crate::error::WebDriverError::BiDi(
+                "missing 'extension' in webExtension.install response".to_string(),
+            )
+        })
     }
 
     /// Uninstall a web extension by id.

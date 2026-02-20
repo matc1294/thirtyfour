@@ -13,24 +13,32 @@ use crate::{
     Capabilities, SessionId, TimeoutConfiguration,
 };
 
+/// Capabilities returned by the WebDriver server during session creation.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SessionCapabilities {
+    /// The WebSocket URL for BiDi connections (if BiDi is supported).
     #[serde(rename = "webSocketUrl")]
     web_socket_url: Option<String>,
 }
 
+/// The value field of a session creation response.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SessionCreationValue {
+    /// The session ID returned in the value object.
     #[serde(default, rename = "sessionId")]
     session_id: String,
+    /// The capabilities returned by the server.
     #[serde(default)]
     capabilities: Option<SessionCapabilities>,
 }
 
+/// Response from the WebDriver server when creating a new session.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SessionCreationResponse {
+    /// The session ID at the top level of the response.
     #[serde(default, rename = "sessionId")]
     session_id: String,
+    /// The value object containing session details.
     value: SessionCreationValue,
 }
 

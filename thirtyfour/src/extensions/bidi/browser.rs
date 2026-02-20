@@ -33,7 +33,11 @@ impl<'a> Browser<'a> {
     pub async fn create_user_context(&self) -> WebDriverResult<String> {
         let result =
             self.session.send_command("browser.createUserContext", serde_json::json!({})).await?;
-        Ok(result["userContext"].as_str().unwrap_or("").to_string())
+        result["userContext"].as_str().map(String::from).ok_or_else(|| {
+            crate::error::WebDriverError::BiDi(
+                "missing 'userContext' in createUserContext response".to_string(),
+            )
+        })
     }
 
     /// Remove (delete) a user context.

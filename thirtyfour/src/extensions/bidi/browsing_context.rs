@@ -83,15 +83,11 @@ impl<'a> BrowsingContext<'a> {
     pub async fn create(&self, kind: CreateType) -> WebDriverResult<String> {
         let params = serde_json::json!({ "type": kind });
         let result = self.session.send_command("browsingContext.create", params).await?;
-        let ctx = result["context"]
-            .as_str()
-            .ok_or_else(|| {
-                crate::error::WebDriverError::BiDi(
-                    "missing 'context' in browsingContext.create response".to_string(),
-                )
-            })?
-            .to_string();
-        Ok(ctx)
+        result["context"].as_str().map(String::from).ok_or_else(|| {
+            crate::error::WebDriverError::BiDi(
+                "missing 'context' in browsingContext.create response".to_string(),
+            )
+        })
     }
 
     /// Close a browsing context.
@@ -101,11 +97,11 @@ impl<'a> BrowsingContext<'a> {
         Ok(())
     }
 
-    /// Navigate a browsing context to a URL. Returns the navigation id.
-    pub async fn navigate(&self, context: &str, url: &str) -> WebDriverResult<String> {
+    /// Navigate a browsing context to a URL. Returns the navigation id if available.
+    pub async fn navigate(&self, context: &str, url: &str) -> WebDriverResult<Option<String>> {
         let params = serde_json::json!({ "context": context, "url": url });
         let result = self.session.send_command("browsingContext.navigate", params).await?;
-        Ok(result["navigation"].as_str().unwrap_or("").to_string())
+        Ok(result["navigation"].as_str().map(String::from))
     }
 
     /// Reload the current page in a browsing context.
