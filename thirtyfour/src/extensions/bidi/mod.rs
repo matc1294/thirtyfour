@@ -325,6 +325,8 @@ impl BiDiSession {
     ) -> WebDriverResult<Self> {
         tracing::debug!(url = %ws_url, "BiDi WebSocket connecting");
 
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let (ws_stream, _) = connect_async(ws_url)
             .await
             .map_err(|e| WebDriverError::BiDi(format!("WebSocket connect failed: {e}")))?;
