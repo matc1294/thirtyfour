@@ -252,6 +252,12 @@ impl BiDiSessionBuilder {
 
     /// Connect using `WebDriver`'s session `webSocketUrl`.
     ///
+    /// This method respects all builder configuration including:
+    /// - `install_crypto_provider()` for TLS connections
+    /// - `basic_auth()` for HTTP Basic Authentication
+    /// - `command_timeout()` for command timeouts
+    /// - `event_channel_capacity()` for event buffer size
+    ///
     /// # Errors
     ///
     /// Returns `WebDriverError::BiDi` if:
