@@ -135,10 +135,49 @@ struct DispatchContext {
 /// # Ok(())
 /// # }
 /// ```
+///
+/// # TLS Connections (wss://)
+///
+/// For secure WebSocket connections (`wss://`), you may need to enable
+/// the crypto provider installation:
+///
+/// ```no_run
+/// # use std::time::Duration;
+/// # use thirtyfour::prelude::*;
+/// # use thirtyfour::BiDiSessionBuilder;
+/// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+/// let bidi = BiDiSessionBuilder::new()
+///     .install_crypto_provider()
+///     .connect_with_driver(driver)
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # HTTP Basic Authentication
+///
+/// If your `WebDriver` infrastructure requires HTTP Basic Authentication,
+/// use the builder to provide credentials:
+///
+/// ```no_run
+/// # use std::time::Duration;
+/// # use thirtyfour::prelude::*;
+/// # use thirtyfour::BiDiSessionBuilder;
+/// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+/// let bidi = BiDiSessionBuilder::new()
+///     .install_crypto_provider()
+///     .basic_auth("username", "password")
+///     .connect_with_driver(driver)
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct BiDiSessionBuilder {
     pub(crate) event_channel_capacity: usize,
     pub(crate) command_timeout: Option<Duration>,
+    pub(crate) install_crypto_provider: bool,
+    pub(crate) basic_auth: Option<(String, String)>,
 }
 
 impl Default for BiDiSessionBuilder {
@@ -146,6 +185,8 @@ impl Default for BiDiSessionBuilder {
         Self {
             event_channel_capacity: 256,
             command_timeout: None,
+            install_crypto_provider: false,
+            basic_auth: None,
         }
     }
 }
@@ -174,6 +215,29 @@ impl BiDiSessionBuilder {
     #[must_use]
     pub fn command_timeout(mut self, timeout: Duration) -> Self {
         self.command_timeout = Some(timeout);
+        self
+    }
+
+    /// Install the TLS crypto provider before connecting.
+    ///
+    /// Required for secure WebSocket connections (`wss://`) when using
+    /// the `bidi` feature. Call this method if you encounter a panic
+    /// about `CryptoProvider` when connecting.
+    ///
+    /// This installs the `aws_lc_rs` crypto provider from rustls.
+    #[must_use]
+    pub fn install_crypto_provider(mut self) -> Self {
+        self.install_crypto_provider = true;
+        self
+    }
+
+    /// Set HTTP Basic Authentication credentials.
+    ///
+    /// Use this if your `WebDriver` infrastructure requires authentication
+    /// to access the `BiDi` `WebSocket` endpoint.
+    #[must_use]
+    pub fn basic_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
+        self.basic_auth = Some((username.into(), password.into()));
         self
     }
 
@@ -325,11 +389,18 @@ impl BiDiSession {
     ) -> WebDriverResult<Self> {
         tracing::debug!(url = %ws_url, "BiDi WebSocket connecting");
 
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        if config.install_crypto_provider {
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        }
 
-        let (ws_stream, _) = connect_async(ws_url)
-            .await
-            .map_err(|e| WebDriverError::BiDi(format!("WebSocket connect failed: {e}")))?;
+        let ws_stream = if let Some((username, password)) = &config.basic_auth {
+            Self::connect_with_auth(ws_url, username, password).await?
+        } else {
+            let (stream, _) = connect_async(ws_url)
+                .await
+                .map_err(|e| WebDriverError::BiDi(format!("WebSocket connect failed: {e}")))?;
+            stream
+        };
 
         tracing::debug!(url = %ws_url, "BiDi WebSocket connected");
 
@@ -369,6 +440,39 @@ impl BiDiSession {
             browsing_context_tx,
             script_tx,
         })
+    }
+
+    async fn connect_with_auth(
+        ws_url: &str,
+        username: &str,
+        password: &str,
+    ) -> WebDriverResult<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        use base64::Engine;
+        use tokio_tungstenite::tungstenite::handshake::client::Request;
+
+        let url: tokio_tungstenite::tungstenite::http::Uri = ws_url
+            .parse()
+            .map_err(|e| WebDriverError::BiDi(format!("Invalid WebSocket URL: {e}")))?;
+
+        let credentials =
+            base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
+        let auth_header = format!("Basic {credentials}");
+
+        let request = Request::builder()
+            .uri(url)
+            .header("Authorization", auth_header)
+            .body(())
+            .map_err(|e| WebDriverError::BiDi(format!("Failed to build request: {e}")))?;
+
+        let (ws_stream, _) = connect_async(request)
+            .await
+            .map_err(|e| WebDriverError::BiDi(format!("WebSocket connect failed: {e}")))?;
+
+        Ok(ws_stream)
     }
 
     fn spawn_dispatch_task(

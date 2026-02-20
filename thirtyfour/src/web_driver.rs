@@ -168,6 +168,15 @@ impl WebDriver {
     /// Returns a [`BiDiSession`][crate::extensions::bidi::BiDiSession] that can be
     /// used to interact with the browser via the BiDi protocol.
     ///
+    /// # Limitations
+    ///
+    /// This convenience method does not configure TLS or authentication.
+    /// If your infrastructure requires:
+    /// - **TLS/SSL** (`wss://` connections): Use [`Self::bidi_connect_with_builder`] with
+    ///   `BiDiSessionBuilder::install_crypto_provider()`
+    /// - **HTTP Basic Authentication**: Use [`Self::bidi_connect_with_builder`] with
+    ///   `BiDiSessionBuilder::basic_auth()`
+    ///
     /// # Errors
     ///
     /// Returns `WebDriverError::BiDi` if:
@@ -190,7 +199,13 @@ impl WebDriver {
     #[cfg(feature = "bidi")]
     /// Connect to BiDi using a builder for custom configuration.
     ///
-    /// # Example
+    /// Use this method instead of [`Self::bidi_connect`] when you need:
+    /// - **TLS/SSL support** for `wss://` connections (call `install_crypto_provider()`)
+    /// - **HTTP Basic Authentication** (call `basic_auth(username, password)`)
+    /// - **Custom timeouts** (call `command_timeout()`)
+    /// - **Custom event channel capacity** (call `event_channel_capacity()`)
+    ///
+    /// # Example with TLS
     ///
     /// ```no_run
     /// # use std::time::Duration;
@@ -198,7 +213,23 @@ impl WebDriver {
     /// # use thirtyfour::BiDiSessionBuilder;
     /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
     /// let bidi = BiDiSessionBuilder::new()
-    ///     .event_channel_capacity(512)
+    ///     .install_crypto_provider()
+    ///     .connect_with_driver(driver)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Example with Basic Auth
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use thirtyfour::prelude::*;
+    /// # use thirtyfour::BiDiSessionBuilder;
+    /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+    /// let bidi = BiDiSessionBuilder::new()
+    ///     .install_crypto_provider()
+    ///     .basic_auth("user", "pass")
     ///     .connect_with_driver(driver)
     ///     .await?;
     /// # Ok(())
