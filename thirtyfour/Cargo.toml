@@ -28,10 +28,10 @@ categories = [
 ]
 
 [features]
-default = ["reqwest", "rustls-tls", "component"]
+default = ["reqwest", "rustls", "component"]
 reqwest = ["dep:reqwest"]
-rustls-tls = ["reqwest/rustls-tls"]
-native-tls = ["reqwest/native-tls"]
+rustls = ["reqwest/rustls"]
+native-tls = ["reqwest/rustls"]
 tokio-multi-threaded = ["tokio/rt-multi-thread"]
 component = ["thirtyfour-macros"]
 debug_sync_quit = []
@@ -39,36 +39,36 @@ bidi = ["dep:tokio-tungstenite"]
 
 
 [dependencies]
-async-trait = "0.1.83"
+async-trait = "0.1.89"
 base64 = "0.22"
 bytes = "1"
-futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+futures-util = { version = "0.3.32", default-features = false, features = ["alloc"] }
 http = "1"
 indexmap = "2"
-pastey = "0.1"
-serde = { version = "1.0.210", features = ["derive", "rc"] }
-serde_json = { version = "1.0.132", features = ["preserve_order"] }
-serde_repr = "0.1.19"
+pastey = "0.2"
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
+serde_repr = "0.1.20"
 stringmatch = "0.4"
 thirtyfour-macros = { path = "../thirtyfour-macros", version = "0.2.0", optional = true }
-thiserror = "2.0.12"
+thiserror = "2.0.18"
 arc-swap = "1"
-tokio = { version = "1.30", features = [
+tokio = { version = "1.49", features = [
     "rt",
     "macros",
     "time",
     "io-util",
     "sync",
 ] }
-cfg-if = "1.0.0"
+cfg-if = "1.0.4"
 tracing = "0.1"
-url = "2.5.2"
-const_format = "0.2.33"
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"], optional = true }
+url = "2.5.8"
+const_format = "0.2.35"
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 
 # Optional HTTP client. Not needed if you supply your own.
-reqwest = { version = "0.12.8", default-features = false, features = [
-    "json",
+reqwest = { version = "0.13.2", default-features = false, features = [
+    "json"
 ], optional = true }
 
 [dev-dependencies]
@@ -79,7 +79,7 @@ rstest = { version = "0.26", default-features = false }
 tower-http = { version = "0.6", features = ["fs"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
-serial_test = "3.2.0"
+serial_test = "3.3.1"
 
 [[example]]
 name = "tokio_async"
