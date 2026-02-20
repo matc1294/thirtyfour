@@ -68,6 +68,8 @@ pub enum BiDiEvent {
     BrowsingContext(BrowsingContextEvent),
     /// Console domain events (alias for log.entryAdded with console source).
     Console(console::ConsoleEvent),
+    /// WebSocket connection closed.
+    ConnectionClosed,
     /// An unrecognised event method and its raw params.
     Unknown {
         /// The event method name (e.g., "network.beforeRequestSent").
@@ -174,6 +176,8 @@ impl BiDiSession {
                     _ => {}
                 }
             }
+            // Notify subscribers that the connection has closed.
+            let _ = event_tx_clone.send(BiDiEvent::ConnectionClosed);
         });
 
         Ok(Self {
