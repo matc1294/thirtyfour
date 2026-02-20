@@ -33,11 +33,15 @@ impl<'a> Browser<'a> {
     pub async fn create_user_context(&self) -> WebDriverResult<String> {
         let result =
             self.session.send_command("browser.createUserContext", serde_json::json!({})).await?;
-        result["userContext"].as_str().map(String::from).ok_or_else(|| {
-            crate::error::WebDriverError::BiDi(
-                "missing 'userContext' in createUserContext response".to_string(),
-            )
-        })
+        result
+            .get("userContext")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from)
+            .ok_or_else(|| {
+                crate::error::WebDriverError::BiDi(
+                    "missing 'userContext' in createUserContext response".to_string(),
+                )
+            })
     }
 
     /// Remove (delete) a user context.
@@ -51,8 +55,10 @@ impl<'a> Browser<'a> {
     pub async fn get_user_contexts(&self) -> WebDriverResult<Vec<UserContextInfo>> {
         let result =
             self.session.send_command("browser.getUserContexts", serde_json::json!({})).await?;
-        let infos: Vec<UserContextInfo> = serde_json::from_value(result["userContexts"].clone())
-            .map_err(|e| crate::error::WebDriverError::BiDi(format!("parse error: {e}")))?;
+        let infos: Vec<UserContextInfo> = serde_json::from_value(
+            result.get("userContexts").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+        )
+        .map_err(|e| crate::error::WebDriverError::BiDi(format!("parse error: {e}")))?;
         Ok(infos)
     }
 }

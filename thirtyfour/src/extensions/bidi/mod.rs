@@ -149,15 +149,20 @@ impl BiDiSession {
                     Some("success") | Some("error") => {
                         if let Some(id) = v.get("id").and_then(Value::as_u64) {
                             let sender = {
-                                let mut map = pending_clone.lock().unwrap();
-                                map.remove(&id)
+                                match pending_clone.lock() {
+                                    Ok(mut map) => map.remove(&id),
+                                    Err(poisoned) => {
+                                        tracing::error!("BiDi pending commands mutex poisoned");
+                                        poisoned.into_inner().remove(&id)
+                                    }
+                                }
                             };
                             if let Some(tx) = sender {
-                                let result = if v["type"] == "success" {
-                                    Ok(v["result"].clone())
+                                let result = if v.get("type").and_then(Value::as_str) == Some("success") {
+                                    Ok(v.get("result").cloned().unwrap_or(Value::Null))
                                 } else {
-                                    let msg = v["message"]
-                                        .as_str()
+                                    let msg = v.get("message")
+                                        .and_then(Value::as_str)
                                         .unwrap_or("unknown BiDi error")
                                         .to_string();
                                     Err(WebDriverError::BiDi(msg))
@@ -167,8 +172,11 @@ impl BiDiSession {
                         }
                     }
                     Some("event") => {
-                        let method = v["method"].as_str().unwrap_or("").to_string();
-                        let params = v["params"].clone();
+                        let method = v.get("method")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let params = v.get("params").cloned().unwrap_or(Value::Null);
                         let event = parse_event(&method, params);
                         // Ignore send errors (no subscribers).
                         let _ = event_tx_clone.send(event);
@@ -200,8 +208,15 @@ impl BiDiSession {
 
         let (tx, rx) = oneshot::channel();
         {
-            let mut map = self.pending.lock().unwrap();
-            map.insert(id, tx);
+            match self.pending.lock() {
+                Ok(mut map) => {
+                    map.insert(id, tx);
+                }
+                Err(poisoned) => {
+                    tracing::error!("BiDi pending commands mutex poisoned");
+                    poisoned.into_inner().insert(id, tx);
+                }
+            }
         }
 
         // Lock the async mutex (safe across await).

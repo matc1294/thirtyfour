@@ -84,11 +84,15 @@ impl<'a> Script<'a> {
             "functionDeclaration": function_declaration,
         });
         let result = self.session.send_command("script.addPreloadScript", params).await?;
-        result["script"].as_str().map(String::from).ok_or_else(|| {
-            crate::error::WebDriverError::BiDi(
-                "missing 'script' in addPreloadScript response".to_string(),
-            )
-        })
+        result
+            .get("script")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from)
+            .ok_or_else(|| {
+                crate::error::WebDriverError::BiDi(
+                    "missing 'script' in addPreloadScript response".to_string(),
+                )
+            })
     }
 
     /// Remove a preload script by id.

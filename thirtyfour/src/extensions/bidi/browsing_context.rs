@@ -83,11 +83,15 @@ impl<'a> BrowsingContext<'a> {
     pub async fn create(&self, kind: CreateType) -> WebDriverResult<String> {
         let params = serde_json::json!({ "type": kind });
         let result = self.session.send_command("browsingContext.create", params).await?;
-        result["context"].as_str().map(String::from).ok_or_else(|| {
-            crate::error::WebDriverError::BiDi(
-                "missing 'context' in browsingContext.create response".to_string(),
-            )
-        })
+        result
+            .get("context")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from)
+            .ok_or_else(|| {
+                crate::error::WebDriverError::BiDi(
+                    "missing 'context' in browsingContext.create response".to_string(),
+                )
+            })
     }
 
     /// Close a browsing context.
@@ -101,7 +105,7 @@ impl<'a> BrowsingContext<'a> {
     pub async fn navigate(&self, context: &str, url: &str) -> WebDriverResult<Option<String>> {
         let params = serde_json::json!({ "context": context, "url": url });
         let result = self.session.send_command("browsingContext.navigate", params).await?;
-        Ok(result["navigation"].as_str().map(String::from))
+        Ok(result.get("navigation").and_then(serde_json::Value::as_str).map(String::from))
     }
 
     /// Reload the current page in a browsing context.
@@ -137,7 +141,11 @@ impl<'a> BrowsingContext<'a> {
     pub async fn capture_screenshot(&self, context: &str) -> WebDriverResult<String> {
         let params = serde_json::json!({ "context": context });
         let result = self.session.send_command("browsingContext.captureScreenshot", params).await?;
-        Ok(result["data"].as_str().unwrap_or("").to_string())
+        Ok(result
+            .get("data")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string())
     }
 
     /// Traverse browsing history by delta (negative = back, positive = forward).

@@ -62,8 +62,10 @@ impl<'a> Storage<'a> {
             params["filter"] = f;
         }
         let result = self.session.send_command("storage.getCookies", params).await?;
-        serde_json::from_value(result["cookies"].clone())
-            .map_err(|e| crate::error::WebDriverError::BiDi(format!("parse error: {e}")))
+        serde_json::from_value(
+            result.get("cookies").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+        )
+        .map_err(|e| crate::error::WebDriverError::BiDi(format!("parse error: {e}")))
     }
 
     /// Set a cookie in the given partition.

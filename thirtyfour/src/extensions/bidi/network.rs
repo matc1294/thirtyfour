@@ -179,8 +179,9 @@ impl<'a> Network<'a> {
     pub async fn add_intercept(&self, phases: &[InterceptPhase]) -> WebDriverResult<String> {
         let params = serde_json::json!({ "phases": phases });
         let result = self.session.send_command("network.addIntercept", params).await?;
-        let intercept_id = result["intercept"]
-            .as_str()
+        let intercept_id = result
+            .get("intercept")
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| {
                 crate::error::WebDriverError::BiDi(
                     "missing 'intercept' in addIntercept response".to_string(),
