@@ -458,21 +458,21 @@ impl BiDiSession {
         >,
     > {
         use base64::Engine;
-        use tokio_tungstenite::tungstenite::handshake::client::Request;
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-        let url: tokio_tungstenite::tungstenite::http::Uri = ws_url
-            .parse()
-            .map_err(|e| WebDriverError::BiDi(format!("Invalid WebSocket URL: {e}")))?;
+        let mut request = ws_url.into_client_request().map_err(|e| {
+            WebDriverError::BiDi(format!("Failed to create WebSocket request: {e}"))
+        })?;
 
         let credentials =
             base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
-        let auth_header = format!("Basic {credentials}");
-
-        let request = Request::builder()
-            .uri(url)
-            .header("Authorization", auth_header)
-            .body(())
-            .map_err(|e| WebDriverError::BiDi(format!("Failed to build request: {e}")))?;
+        let auth_value = format!("Basic {credentials}");
+        request.headers_mut().insert(
+            tokio_tungstenite::tungstenite::http::header::AUTHORIZATION,
+            auth_value.parse().map_err(|e| {
+                WebDriverError::BiDi(format!("Failed to create auth header value: {e}"))
+            })?,
+        );
 
         let (ws_stream, _) = connect_async(request)
             .await
