@@ -33,6 +33,10 @@ Thirtyfour is a Selenium / WebDriver library for Rust, for automated website UI 
 - `component`: (Default) Enable the `Component` derive macro (via thirtyfour_macros).
 - `selenium-manager`: (Default) Enable the Selenium manager, which downloads then starts
   the correct webdriver.
+- `bidi`: Enable WebDriver BiDi (bidirectional protocol) support for real-time
+  event handling, network interception, script evaluation, and more.
+  Requires Chrome 115+ or Firefox 119+. See `examples/bidi_network_intercept.rs`
+  for usage examples.
 
 ### Example (async):
 

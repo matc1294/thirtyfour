@@ -61,7 +61,7 @@ pub struct NavigationInfo {
     pub url: String,
 }
 
-/// BiDi `browsingContext` domain accessor.
+/// `BiDi` `browsingContext` domain accessor.
 #[derive(Debug)]
 pub struct BrowsingContext<'a> {
     session: &'a BiDiSession,
@@ -75,26 +75,36 @@ impl<'a> BrowsingContext<'a> {
     }
 
     /// Get the tree of currently open browsing contexts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn get_tree(&self) -> WebDriverResult<serde_json::Value> {
         self.session.send_command("browsingContext.getTree", serde_json::json!({})).await
     }
 
     /// Create a new browsing context (tab or window). Returns the context id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails or the response is malformed.
     pub async fn create(&self, kind: CreateType) -> WebDriverResult<String> {
         let params = serde_json::json!({ "type": kind });
         let result = self.session.send_command("browsingContext.create", params).await?;
-        result
-            .get("context")
-            .and_then(serde_json::Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| {
+        result.get("context").and_then(serde_json::Value::as_str).map(String::from).ok_or_else(
+            || {
                 crate::error::WebDriverError::BiDi(
                     "missing 'context' in browsingContext.create response".to_string(),
                 )
-            })
+            },
+        )
     }
 
     /// Close a browsing context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn close(&self, context: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "context": context });
         self.session.send_command("browsingContext.close", params).await?;
@@ -102,6 +112,10 @@ impl<'a> BrowsingContext<'a> {
     }
 
     /// Navigate a browsing context to a URL. Returns the navigation id if available.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn navigate(&self, context: &str, url: &str) -> WebDriverResult<Option<String>> {
         let params = serde_json::json!({ "context": context, "url": url });
         let result = self.session.send_command("browsingContext.navigate", params).await?;
@@ -109,6 +123,10 @@ impl<'a> BrowsingContext<'a> {
     }
 
     /// Reload the current page in a browsing context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn reload(&self, context: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "context": context });
         self.session.send_command("browsingContext.reload", params).await?;
@@ -116,6 +134,10 @@ impl<'a> BrowsingContext<'a> {
     }
 
     /// Activate (focus) a browsing context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn activate(&self, context: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "context": context });
         self.session.send_command("browsingContext.activate", params).await?;
@@ -123,6 +145,10 @@ impl<'a> BrowsingContext<'a> {
     }
 
     /// Set the viewport size of a browsing context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn set_viewport(
         &self,
         context: &str,
@@ -138,17 +164,21 @@ impl<'a> BrowsingContext<'a> {
     }
 
     /// Capture a screenshot of a browsing context. Returns base64-encoded PNG bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn capture_screenshot(&self, context: &str) -> WebDriverResult<String> {
         let params = serde_json::json!({ "context": context });
         let result = self.session.send_command("browsingContext.captureScreenshot", params).await?;
-        Ok(result
-            .get("data")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("")
-            .to_string())
+        Ok(result.get("data").and_then(serde_json::Value::as_str).unwrap_or("").to_string())
     }
 
     /// Traverse browsing history by delta (negative = back, positive = forward).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn traverse_history(&self, context: &str, delta: i32) -> WebDriverResult<()> {
         let params = serde_json::json!({ "context": context, "delta": delta });
         self.session.send_command("browsingContext.traverseHistory", params).await?;

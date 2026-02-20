@@ -13,11 +13,19 @@ macro_rules! chromium_arg_wrapper {
         paste! {
             $(
                 #[doc = concat!("Set the ", $opt, " option.")]
+                ///
+                /// # Errors
+                ///
+                /// Returns a `WebDriverError` if serialization fails.
                 fn [<set_ $fname>](&mut self) -> WebDriverResult<()> {
                     self.add_arg($opt)
                 }
 
                 #[doc = concat!("Unset the ", $opt, " option.")]
+                ///
+                /// # Errors
+                ///
+                /// Returns a `WebDriverError` if serialization fails.
                 fn [<unset_ $fname>](&mut self) -> WebDriverResult<()> {
                     self.remove_arg($opt)
                 }
@@ -47,6 +55,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     }
 
     /// Set the path to chrome binary to use.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_binary(&mut self, path: &str) -> WebDriverResult<()> {
         self.insert_browser_option("binary", path)
     }
@@ -62,6 +74,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     }
 
     /// Set the debugger address.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_debugger_address(&mut self, address: &str) -> WebDriverResult<()> {
         self.insert_browser_option("debuggerAddress", address)
     }
@@ -82,6 +98,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     ///
     /// The full list of switches can be found here:
     /// [https://chromium.googlesource.com/chromium/src/+/master/chrome/common/chrome_switches.cc](https://chromium.googlesource.com/chromium/src/+/master/chrome/common/chrome_switches.cc)
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn add_arg(&mut self, arg: &str) -> WebDriverResult<()> {
         let mut args = self.args();
         let arg_string = arg.to_string();
@@ -100,6 +120,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     /// let mut caps = DesiredCapabilities::chrome();
     /// caps.add_experimental_option("excludeSwitches", vec!["--enable-logging"]).unwrap();
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn add_experimental_option(
         &mut self,
         name: impl Into<String>,
@@ -114,6 +138,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     }
 
     /// Add a base64-encoded extension.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn add_encoded_extension(&mut self, extension_base64: &str) -> WebDriverResult<()> {
         let mut extensions = self.extensions();
         let ext_string = extension_base64.to_string();
@@ -124,6 +152,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     }
 
     /// Remove the specified base64-encoded extension if it had been added previously.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn remove_encoded_extension(&mut self, extension_base64: &str) -> WebDriverResult<()> {
         let mut extensions = self.extensions();
         if extensions.is_empty() {
@@ -135,6 +167,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     }
 
     /// Add Chrome extension file. This will be a file with a .CRX extension.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if the file cannot be read or serialization fails.
     fn add_extension(&mut self, crx_file: &Path) -> WebDriverResult<()> {
         let contents = std::fs::read(crx_file)?;
         let b64_contents = BASE64_STANDARD.encode(contents);
@@ -143,6 +179,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
 
     /// Remove the specified Chrome extension file if an identical extension had been added
     /// previously.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if the file cannot be read or serialization fails.
     fn remove_extension(&mut self, crx_file: &Path) -> WebDriverResult<()> {
         let contents = std::fs::read(crx_file)?;
         let b64_contents = BASE64_STANDARD.encode(contents);
@@ -155,6 +195,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     }
 
     /// Add the specified arg to the list of exclude switches.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn add_exclude_switch(&mut self, arg: &str) -> WebDriverResult<()> {
         let mut args = self.exclude_switches();
         let arg_string = arg.to_string();
@@ -165,6 +209,10 @@ pub trait ChromiumLikeCapabilities: BrowserCapabilitiesHelper {
     }
 
     /// Remove the specified arg from the list of exclude switches.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn remove_exclude_switch(&mut self, arg: &str) -> WebDriverResult<()> {
         let mut args = self.exclude_switches();
         if args.is_empty() {
@@ -200,7 +248,8 @@ impl Default for ChromiumCapabilities {
 }
 
 impl ChromiumCapabilities {
-    /// Create a new ChromeCapabilities struct.
+    /// Create a new `ChromiumCapabilities` struct.
+    #[must_use]
     pub fn new() -> Self {
         let mut capabilities = Capabilities::new();
         capabilities.insert("browserName".to_string(), json!("chromium"));
@@ -211,12 +260,12 @@ impl ChromiumCapabilities {
 }
 
 impl CapabilitiesHelper for ChromiumCapabilities {
-    fn _get(&self, key: &str) -> Option<&Value> {
-        self.capabilities._get(key)
+    fn get_value(&self, key: &str) -> Option<&Value> {
+        self.capabilities.get_value(key)
     }
 
-    fn _get_mut(&mut self, key: &str) -> Option<&mut Value> {
-        self.capabilities._get_mut(key)
+    fn get_value_mut(&mut self, key: &str) -> Option<&mut Value> {
+        self.capabilities.get_value_mut(key)
     }
 
     fn insert_base_capability(&mut self, key: String, value: Value) {

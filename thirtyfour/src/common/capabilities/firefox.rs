@@ -25,11 +25,19 @@ macro_rules! firefox_arg_wrapper {
         paste! {
             $(
                 #[doc = concat!("Set the ", $opt, " option.")]
+                ///
+                /// # Errors
+                ///
+                /// Returns a `WebDriverError` if serialization fails.
                 pub fn [<set_ $fname>](&mut self) -> WebDriverResult<()> {
                     self.add_arg($opt)
                 }
 
                 #[doc = concat!("Unset the ", $opt, " option.")]
+                ///
+                /// # Errors
+                ///
+                /// Returns a `WebDriverError` if serialization fails.
                 pub fn [<unset_ $fname>](&mut self) -> WebDriverResult<()> {
                     self.remove_arg($opt)
                 }
@@ -45,6 +53,7 @@ macro_rules! firefox_arg_wrapper {
 
 impl FirefoxCapabilities {
     /// Create a new `FirefoxCapabilities`.
+    #[must_use]
     pub fn new() -> Self {
         let mut capabilities = Capabilities::new();
         capabilities.insert("browserName".to_string(), json!("firefox"));
@@ -56,6 +65,10 @@ impl FirefoxCapabilities {
     /// Set the selenium logging preferences.
     ///
     /// To set the `geckodriver` log level, use `set_log_level()` instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_logging_prefs(
         &mut self,
         component: String,
@@ -65,6 +78,10 @@ impl FirefoxCapabilities {
     }
 
     /// Get the `geckodriver` log level.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if deserialization fails.
     pub fn log_level(&self) -> WebDriverResult<LogLevel> {
         let level: LogLevel = match self.browser_option("log") {
             Some(Value::Object(x)) => {
@@ -76,21 +93,34 @@ impl FirefoxCapabilities {
     }
 
     /// Set the `geckodriver` log level.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_log_level(&mut self, log_level: LogLevel) -> WebDriverResult<()> {
         self.insert_browser_option("log", json!({ "level": log_level }))
     }
 
     /// Set the start command for the firefox binary.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_firefox_binary(&mut self, start_cmd: &str) -> WebDriverResult<()> {
         self.insert_browser_option("binary", start_cmd)
     }
 
     /// Set the firefox preferences to use.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_preferences(&mut self, preferences: FirefoxPreferences) -> WebDriverResult<()> {
         self.insert_browser_option("prefs", preferences)
     }
 
     /// Get the firefox profile zip as a base64-encoded string.
+    #[must_use]
     pub fn encoded_profile(&self) -> Option<String> {
         self.browser_option("profile")
     }
@@ -98,11 +128,19 @@ impl FirefoxCapabilities {
     /// Set the firefox profile to use.
     ///
     /// The profile must be a zipped, base64-encoded string of the profile directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_encoded_profile(&mut self, profile: &str) -> WebDriverResult<()> {
         self.insert_browser_option("profile", profile)
     }
 
     /// Add the specified command-line argument to `geckodriver`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn add_arg(&mut self, arg: &str) -> WebDriverResult<()> {
         let mut args = self.args();
         let arg_string = arg.to_string();
@@ -124,12 +162,12 @@ impl From<FirefoxCapabilities> for Capabilities {
 }
 
 impl CapabilitiesHelper for FirefoxCapabilities {
-    fn _get(&self, key: &str) -> Option<&Value> {
-        self.capabilities._get(key)
+    fn get_value(&self, key: &str) -> Option<&Value> {
+        self.capabilities.get_value(key)
     }
 
-    fn _get_mut(&mut self, key: &str) -> Option<&mut Value> {
-        self.capabilities._get_mut(key)
+    fn get_value_mut(&mut self, key: &str) -> Option<&mut Value> {
+        self.capabilities.get_value_mut(key)
     }
 
     fn insert_base_capability(&mut self, key: String, value: Value) {
@@ -141,8 +179,8 @@ impl BrowserCapabilitiesHelper for FirefoxCapabilities {
     const KEY: &'static str = "moz:firefoxOptions";
 }
 
-/// LogLevel used by `geckodriver`.
-#[derive(Debug, Default, Serialize, Deserialize)]
+/// `LogLevel` used by `geckodriver`.
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     /// Trace log level.
@@ -165,7 +203,7 @@ pub enum LogLevel {
 }
 
 /// Log level for the webdriver server.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum LoggingPrefsLogLevel {
     /// Disable logging.
@@ -197,12 +235,17 @@ pub struct FirefoxPreferences {
 
 impl FirefoxPreferences {
     /// Create a new `FirefoxPreferences` instance.
+    #[must_use]
     pub fn new() -> Self {
         FirefoxPreferences::default()
     }
 
     /// Sets the specified firefox preference. This is a helper method for the various
     /// specific option methods.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set<T>(&mut self, key: &str, value: T) -> WebDriverResult<()>
     where
         T: Serialize,
@@ -213,84 +256,144 @@ impl FirefoxPreferences {
 
     /// Unsets the specified firefox preference. This is a helper method for the various
     /// specific option methods.
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset(&mut self, key: &str) -> WebDriverResult<()> {
         self.preferences.remove(key);
         Ok(())
     }
 
     /// Sets accept untrusted certs
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_accept_untrusted_certs(&mut self, value: bool) -> WebDriverResult<()> {
         self.set("webdriver_accept_untrusted_certs", value)
     }
 
     /// Unsets accept untrusted certs
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset_accept_untrusted_certs(&mut self) -> WebDriverResult<()> {
         self.unset("webdriver_accept_untrusted_certs")
     }
 
     /// Sets assume untrusted issuer
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_assume_untrusted_issuer(&mut self, value: bool) -> WebDriverResult<()> {
         self.set("webdriver_assume_untrusted_issuer", value)
     }
 
     /// Unsets assume untrusted issuer
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset_assume_untrusted_issuer(&mut self) -> WebDriverResult<()> {
         self.unset("webdriver_assume_untrusted_issuer")
     }
 
     /// Sets the log driver
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_log_driver(&mut self, value: FirefoxProfileLogDriver) -> WebDriverResult<()> {
         self.set("webdriver.log.driver", value)
     }
 
     /// Unsets the log driver
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset_log_driver(&mut self) -> WebDriverResult<()> {
         self.unset("webdriver.log.driver")
     }
 
     /// Sets the log file
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_log_file(&mut self, value: String) -> WebDriverResult<()> {
         self.set("webdriver.log.file", value)
     }
 
     /// Unsets the log file
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset_log_file(&mut self) -> WebDriverResult<()> {
         self.unset("webdriver.log.file")
     }
 
     /// Sets the load strategy
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_load_strategy(&mut self, value: String) -> WebDriverResult<()> {
         self.set("webdriver.load.strategy", value)
     }
 
     /// Unsets the load strategy
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset_load_strategy(&mut self) -> WebDriverResult<()> {
         self.unset("webdriver.load.strategy")
     }
 
     /// Sets the webdriver port
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_webdriver_port(&mut self, value: u16) -> WebDriverResult<()> {
         self.set("webdriver_firefox_port", value)
     }
 
     /// Unsets the webdriver port
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset_webdriver_port(&mut self) -> WebDriverResult<()> {
         self.unset("webdriver_firefox_port")
     }
 
     /// Sets the user agent
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     pub fn set_user_agent(&mut self, value: String) -> WebDriverResult<()> {
         self.set("general.useragent.override", value)
     }
 
     /// Unsets the user agent
+    ///
+    /// # Errors
+    ///
+    /// This method always returns `Ok(())`.
     pub fn unset_user_agent(&mut self) -> WebDriverResult<()> {
         self.unset("general.useragent.override")
     }
 }
 
 /// Log level for Firefox profile.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum FirefoxProfileLogDriver {
     /// Debug log level.

@@ -19,6 +19,7 @@ impl Default for EdgeCapabilities {
 
 impl EdgeCapabilities {
     /// Create a new `EdgeCapabilities`.
+    #[must_use]
     pub fn new() -> Self {
         let mut capabilities = Capabilities::new();
         capabilities.insert("browserName".to_string(), json!("MicrosoftEdge"));
@@ -35,12 +36,12 @@ impl From<EdgeCapabilities> for Capabilities {
 }
 
 impl CapabilitiesHelper for EdgeCapabilities {
-    fn _get(&self, key: &str) -> Option<&Value> {
-        self.capabilities._get(key)
+    fn get_value(&self, key: &str) -> Option<&Value> {
+        self.capabilities.get_value(key)
     }
 
-    fn _get_mut(&mut self, key: &str) -> Option<&mut Value> {
-        self.capabilities._get_mut(key)
+    fn get_value_mut(&mut self, key: &str) -> Option<&mut Value> {
+        self.capabilities.get_value_mut(key)
     }
 
     fn insert_base_capability(&mut self, key: String, value: Value) {

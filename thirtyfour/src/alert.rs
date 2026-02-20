@@ -20,6 +20,10 @@ impl Alert {
     }
 
     /// Get the text of the active alert if there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     #[deprecated(
         since = "0.30.0",
         note = "This method has been moved to WebDriver::get_alert_text()"
@@ -29,6 +33,10 @@ impl Alert {
     }
 
     /// Dismiss the active alert if there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     #[deprecated(
         since = "0.30.0",
         note = "This method has been moved to WebDriver::dismiss_alert()"
@@ -38,6 +46,10 @@ impl Alert {
     }
 
     /// Accept the active alert if there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     #[deprecated(
         since = "0.30.0",
         note = "This method has been moved to WebDriver::accept_alert()"
@@ -47,6 +59,10 @@ impl Alert {
     }
 
     /// Send the specified text to the active alert if there is one.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     #[deprecated(
         since = "0.30.0",
         note = "This method has been moved to WebDriver::send_alert_text()"
@@ -74,6 +90,10 @@ impl SessionHandle {
     /// #     })
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     pub async fn get_alert_text(&self) -> WebDriverResult<String> {
         self.cmd(Command::GetAlertText).await?.value::<String>()
     }
@@ -95,6 +115,10 @@ impl SessionHandle {
     /// #     })
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     pub async fn dismiss_alert(&self) -> WebDriverResult<()> {
         self.cmd(Command::DismissAlert).await?;
         Ok(())
@@ -117,6 +141,10 @@ impl SessionHandle {
     /// #     })
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     pub async fn accept_alert(&self) -> WebDriverResult<()> {
         self.cmd(Command::AcceptAlert).await?;
         Ok(())
@@ -159,6 +187,10 @@ impl SessionHandle {
     /// #     })
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if there is no active alert or the request fails.
     pub async fn send_alert_text(&self, keys: impl Into<TypingData>) -> WebDriverResult<()> {
         self.cmd(Command::SendAlertText(keys.into())).await?;
         Ok(())

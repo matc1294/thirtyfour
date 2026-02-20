@@ -1,7 +1,7 @@
 use super::BiDiSession;
 use crate::error::WebDriverResult;
 
-/// BiDi `input` domain accessor.
+/// `BiDi` `input` domain accessor.
 #[derive(Debug)]
 pub struct Input<'a> {
     session: &'a BiDiSession,
@@ -15,6 +15,10 @@ impl<'a> Input<'a> {
     }
 
     /// Perform a sequence of input actions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn perform(
         &self,
         context: &str,
@@ -29,13 +33,21 @@ impl<'a> Input<'a> {
     }
 
     /// Release all currently pressed input.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn release(&self, context: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "context": context });
         self.session.send_command("input.releaseActions", params).await?;
         Ok(())
     }
 
-    /// Set files for an input[type=file] element.
+    /// Set files for an `input[type=file]` element.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn set_files(
         &self,
         context: &str,

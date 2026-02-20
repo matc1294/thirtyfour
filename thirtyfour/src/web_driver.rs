@@ -186,6 +186,38 @@ impl WebDriver {
         })?;
         crate::extensions::bidi::BiDiSession::connect(ws_url).await
     }
+
+    #[cfg(feature = "bidi")]
+    /// Connect to BiDi using a builder for custom configuration.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use thirtyfour::prelude::*;
+    /// # use thirtyfour::BiDiSessionBuilder;
+    /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+    /// let bidi = BiDiSessionBuilder::new()
+    ///     .event_channel_capacity(512)
+    ///     .connect_with_driver(driver)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn bidi_connect_with_builder(
+        &self,
+        builder: crate::extensions::bidi::BiDiSessionBuilder,
+    ) -> crate::error::WebDriverResult<crate::extensions::bidi::BiDiSession> {
+        let ws_url = self.handle.websocket_url.as_deref().ok_or_else(|| {
+            crate::prelude::WebDriverError::BiDi(
+                "No webSocketUrl in session capabilities. \
+                 Enable BiDi in your browser capabilities \
+                 (e.g., for Chrome: set 'webSocketUrl: true')."
+                    .to_string(),
+            )
+        })?;
+        builder.connect(ws_url).await
+    }
 }
 
 /// The Deref implementation allows the WebDriver to "fall back" to SessionHandle and

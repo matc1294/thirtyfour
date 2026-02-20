@@ -18,7 +18,8 @@ impl Default for ChromeCapabilities {
 }
 
 impl ChromeCapabilities {
-    /// Create a new ChromeCapabilities struct.
+    /// Create a new `ChromeCapabilities` struct.
+    #[must_use]
     pub fn new() -> Self {
         let mut capabilities = Capabilities::new();
         capabilities.insert("browserName".to_string(), json!("chrome"));
@@ -29,12 +30,12 @@ impl ChromeCapabilities {
 }
 
 impl CapabilitiesHelper for ChromeCapabilities {
-    fn _get(&self, key: &str) -> Option<&Value> {
-        self.capabilities._get(key)
+    fn get_value(&self, key: &str) -> Option<&Value> {
+        self.capabilities.get_value(key)
     }
 
-    fn _get_mut(&mut self, key: &str) -> Option<&mut Value> {
-        self.capabilities._get_mut(key)
+    fn get_value_mut(&mut self, key: &str) -> Option<&mut Value> {
+        self.capabilities.get_value_mut(key)
     }
 
     fn insert_base_capability(&mut self, key: String, value: Value) {

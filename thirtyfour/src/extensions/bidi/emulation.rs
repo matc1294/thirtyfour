@@ -1,7 +1,7 @@
 use super::BiDiSession;
 use crate::error::WebDriverResult;
 
-/// BiDi `emulation` domain accessor.
+/// `BiDi` `emulation` domain accessor.
 #[derive(Debug)]
 pub struct Emulation<'a> {
     session: &'a BiDiSession,
@@ -15,6 +15,10 @@ impl<'a> Emulation<'a> {
     }
 
     /// Override the geolocation for a browsing context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn set_geolocation_override(
         &self,
         context: &str,
@@ -38,6 +42,10 @@ impl<'a> Emulation<'a> {
     }
 
     /// Set device posture for a browsing context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn set_device_posture(&self, context: &str, posture: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({
             "context": context,

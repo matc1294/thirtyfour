@@ -13,7 +13,7 @@ pub enum PermissionState {
     Prompt,
 }
 
-/// BiDi `permissions` domain accessor.
+/// `BiDi` `permissions` domain accessor.
 #[derive(Debug)]
 pub struct Permissions<'a> {
     session: &'a BiDiSession,
@@ -27,6 +27,10 @@ impl<'a> Permissions<'a> {
     }
 
     /// Set the permission state for a given permission name and origin.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn set_permission(
         &self,
         origin: &str,

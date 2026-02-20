@@ -2,7 +2,7 @@ use super::BiDiSession;
 use crate::error::WebDriverResult;
 use serde::{Deserialize, Serialize};
 
-/// A BiDi cookie.
+/// A `BiDi` cookie.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Cookie {
     /// Cookie name.
@@ -15,10 +15,10 @@ pub struct Cookie {
     pub path: Option<String>,
     /// Secure flag.
     pub secure: Option<bool>,
-    /// HttpOnly flag.
+    /// `HttpOnly` flag.
     #[serde(rename = "httpOnly")]
     pub http_only: Option<bool>,
-    /// SameSite policy.
+    /// `SameSite` policy.
     #[serde(rename = "sameSite")]
     pub same_site: Option<String>,
     /// Expiry timestamp.
@@ -39,7 +39,7 @@ pub enum CookieValue {
     },
 }
 
-/// BiDi `storage` domain accessor.
+/// `BiDi` `storage` domain accessor.
 #[derive(Debug)]
 pub struct Storage<'a> {
     session: &'a BiDiSession,
@@ -53,6 +53,10 @@ impl<'a> Storage<'a> {
     }
 
     /// Get cookies matching the given filter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails or the response is malformed.
     pub async fn get_cookies(
         &self,
         filter: Option<serde_json::Value>,
@@ -69,6 +73,10 @@ impl<'a> Storage<'a> {
     }
 
     /// Set a cookie in the given partition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn set_cookie(&self, cookie: Cookie) -> WebDriverResult<()> {
         let params = serde_json::json!({ "cookie": cookie });
         self.session.send_command("storage.setCookie", params).await?;
@@ -76,6 +84,10 @@ impl<'a> Storage<'a> {
     }
 
     /// Delete cookies matching the given filter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn delete_cookies(&self, filter: Option<serde_json::Value>) -> WebDriverResult<()> {
         let mut params = serde_json::json!({});
         if let Some(f) = filter {

@@ -78,7 +78,7 @@ pub enum PointerOrigin {
     Viewport,
     /// Pointer origin is the pointer itself.
     Pointer,
-    /// Pointer origin is a WebElement.
+    /// Pointer origin is a `WebElement`.
     #[serde(rename = "element-6066-11e4-a52e-4f735466cecf")]
     WebElement(ElementId),
 }
@@ -175,6 +175,7 @@ where
     }
 
     /// Get the ID of this action source.
+    #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -185,6 +186,7 @@ impl ActionSource<KeyAction> {
     ///
     /// Duration represents the time before an action is executed.
     /// Defaults to 0ms
+    #[must_use]
     pub fn new(name: &str, duration: Option<Duration>) -> Self {
         let duration = match duration {
             Some(duration) => {
@@ -218,7 +220,7 @@ impl ActionSource<KeyAction> {
     }
 
     /// Send multiple keys as a string of Key Up and Key Down actions.
-    pub fn send_keys(&mut self, text: TypingData) {
+    pub fn send_keys(&mut self, text: &TypingData) {
         for c in text.as_vec() {
             self.key_down(c);
             self.key_up(c);
@@ -227,7 +229,7 @@ impl ActionSource<KeyAction> {
 }
 
 /// Enum representing the type of pointer action.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum PointerActionType {
     /// Mouse pointer.
     Mouse,
@@ -242,6 +244,7 @@ impl ActionSource<PointerAction> {
     ///
     /// Duration represents the time before an action is executed.
     /// Defaults to 250ms
+    #[must_use]
     pub fn new(name: &str, action_type: PointerActionType, duration: Option<Duration>) -> Self {
         let duration = match duration {
             Some(duration) => {

@@ -15,7 +15,7 @@ pub enum InterceptPhase {
     AuthRequired,
 }
 
-/// A network request intercepted by BiDi.
+/// A network request intercepted by `BiDi`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct NetworkRequest {
     /// The HTTP method (e.g., "GET", "POST").
@@ -162,7 +162,7 @@ pub struct AuthRequiredParams {
     pub context: Option<String>,
 }
 
-/// BiDi `network` domain accessor.
+/// `BiDi` `network` domain accessor.
 #[derive(Debug)]
 pub struct Network<'a> {
     session: &'a BiDiSession,
@@ -176,6 +176,10 @@ impl<'a> Network<'a> {
     }
 
     /// Add a network intercept for the given phases. Returns the intercept id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails or the response is malformed.
     pub async fn add_intercept(&self, phases: &[InterceptPhase]) -> WebDriverResult<String> {
         let params = serde_json::json!({ "phases": phases });
         let result = self.session.send_command("network.addIntercept", params).await?;
@@ -192,6 +196,10 @@ impl<'a> Network<'a> {
     }
 
     /// Remove a previously added intercept.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn remove_intercept(&self, intercept_id: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "intercept": intercept_id });
         self.session.send_command("network.removeIntercept", params).await?;
@@ -199,6 +207,10 @@ impl<'a> Network<'a> {
     }
 
     /// Continue a blocked request without modification.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn continue_request(&self, request_id: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "request": request_id });
         self.session.send_command("network.continueRequest", params).await?;
@@ -206,6 +218,10 @@ impl<'a> Network<'a> {
     }
 
     /// Continue a blocked response without modification.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn continue_response(&self, request_id: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "request": request_id });
         self.session.send_command("network.continueResponse", params).await?;
@@ -213,6 +229,10 @@ impl<'a> Network<'a> {
     }
 
     /// Fail a blocked request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn fail_request(&self, request_id: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "request": request_id });
         self.session.send_command("network.failRequest", params).await?;
@@ -220,6 +240,10 @@ impl<'a> Network<'a> {
     }
 
     /// Provide a mock response for a blocked request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn provide_response(
         &self,
         request_id: &str,
@@ -238,6 +262,7 @@ impl<'a> Network<'a> {
     }
 
     /// Subscribe to network events. Returns a broadcast receiver.
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<BiDiEvent> {
         self.session.subscribe_events()
     }

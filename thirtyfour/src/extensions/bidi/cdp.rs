@@ -1,7 +1,7 @@
 use super::BiDiSession;
 use crate::error::WebDriverResult;
 
-/// BiDi CDP passthrough domain accessor.
+/// `BiDi` `CDP` passthrough domain accessor.
 #[derive(Debug)]
 pub struct Cdp<'a> {
     session: &'a BiDiSession,
@@ -14,7 +14,11 @@ impl<'a> Cdp<'a> {
         }
     }
 
-    /// Send a raw CDP command through the BiDi CDP passthrough.
+    /// Send a raw `CDP` command through the `BiDi` `CDP` passthrough.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn send_command(
         &self,
         method: &str,
@@ -31,7 +35,11 @@ impl<'a> Cdp<'a> {
         self.session.send_command("cdp.sendCommand", payload).await
     }
 
-    /// Resolve a CDP realm from a BiDi realm.
+    /// Resolve a `CDP` realm from a `BiDi` realm.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn resolve_realm(&self, realm: &str) -> WebDriverResult<serde_json::Value> {
         let params = serde_json::json!({ "realm": realm });
         self.session.send_command("cdp.resolveRealm", params).await

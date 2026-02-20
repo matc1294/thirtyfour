@@ -675,7 +675,7 @@ impl WebElement {
     /// # }
     /// ```
     pub async fn focus(&self) -> WebDriverResult<()> {
-        self.handle.execute(r#"arguments[0].focus();"#, vec![self.to_json()?]).await?;
+        self.handle.execute(r"arguments[0].focus();", vec![self.to_json()?]).await?;
         Ok(())
     }
 

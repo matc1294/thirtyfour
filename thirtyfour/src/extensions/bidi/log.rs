@@ -39,7 +39,7 @@ pub enum LogEvent {
 #[derive(Debug, Clone)]
 pub struct ConsoleEvent(pub LogEntry);
 
-/// BiDi `log` domain accessor.
+/// `BiDi` `log` domain accessor.
 #[derive(Debug)]
 pub struct Log<'a> {
     session: &'a BiDiSession,
@@ -55,6 +55,7 @@ impl<'a> Log<'a> {
     /// Subscribe to `log.entryAdded` events. Returns a broadcast receiver.
     /// You must first call `bidi.session().subscribe(&["log.entryAdded"], &[]).await?`
     /// to tell the browser to start sending these events.
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<BiDiEvent> {
         self.session.subscribe_events()
     }

@@ -48,7 +48,7 @@ pub struct EvaluateResult {
     pub exception_details: Option<serde_json::Value>,
 }
 
-/// BiDi `script` domain accessor.
+/// `BiDi` `script` domain accessor.
 #[derive(Debug)]
 pub struct Script<'a> {
     session: &'a BiDiSession,
@@ -62,6 +62,10 @@ impl<'a> Script<'a> {
     }
 
     /// Evaluate an expression in the given realm or context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails or the response is malformed.
     pub async fn evaluate(
         &self,
         expression: &str,
@@ -79,23 +83,29 @@ impl<'a> Script<'a> {
     }
 
     /// Add a preload script that runs before every page load. Returns the script id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails or the response is malformed.
     pub async fn add_preload_script(&self, function_declaration: &str) -> WebDriverResult<String> {
         let params = serde_json::json!({
             "functionDeclaration": function_declaration,
         });
         let result = self.session.send_command("script.addPreloadScript", params).await?;
-        result
-            .get("script")
-            .and_then(serde_json::Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| {
+        result.get("script").and_then(serde_json::Value::as_str).map(String::from).ok_or_else(
+            || {
                 crate::error::WebDriverError::BiDi(
                     "missing 'script' in addPreloadScript response".to_string(),
                 )
-            })
+            },
+        )
     }
 
     /// Remove a preload script by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn remove_preload_script(&self, script_id: &str) -> WebDriverResult<()> {
         let params = serde_json::json!({ "script": script_id });
         self.session.send_command("script.removePreloadScript", params).await?;
@@ -103,6 +113,10 @@ impl<'a> Script<'a> {
     }
 
     /// Call a function in the given realm or context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails or the response is malformed.
     pub async fn call_function(
         &self,
         function_declaration: &str,
@@ -122,6 +136,10 @@ impl<'a> Script<'a> {
     }
 
     /// Disown realm handles.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails.
     pub async fn disown(&self, realm: &str, handles: &[&str]) -> WebDriverResult<()> {
         let params = serde_json::json!({
             "target": { "realm": realm },

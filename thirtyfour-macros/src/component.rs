@@ -16,8 +16,7 @@ pub fn expand_component_derive(ast: syn::DeriveInput) -> TokenStream {
     ParsedOptions::try_from(ast)
         .and_then(ComponentArgs::try_from)
         .as_ref()
-        .map(ComponentArgs::to_token_stream)
-        .unwrap_or_else(syn::Error::to_compile_error)
+        .map_or_else(syn::Error::to_compile_error, ComponentArgs::to_token_stream)
 }
 
 struct ParsedOptions {
@@ -98,14 +97,11 @@ impl TryFrom<ParsedOptions> for ComponentArgs {
             field_initialisers.push(initialiser);
         }
 
-        let base_ident = match base_ident {
-            Some(x) => x,
-            None => {
-                bail!(
-                    ident.span(),
-                    "base field not found. Add the #[base] attribute for the base WebElement field"
-                )
-            }
+        let Some(base_ident) = base_ident else {
+            bail!(
+                ident.span(),
+                "base field not found. Add the #[base] attribute for the base WebElement field"
+            )
         };
 
         Ok(ComponentArgs {
@@ -179,7 +175,7 @@ impl ParsedField {
         self.attrs.iter().find(|x| x.path().is_ident("by"))
     }
 
-    /// Get the definition for this field that should go in new().
+    /// Get the definition for this field that should go in `new()`.
     ///
     /// ```ignore
     /// Self {
@@ -195,7 +191,7 @@ impl ParsedField {
         }
     }
 
-    /// Get the initialiser for this field that should go in new().
+    /// Get the initialiser for this field that should go in `new()`.
     ///
     /// ```ignore
     /// let some_field = ...; // <-- this (including any attributes as necessary)
@@ -270,7 +266,7 @@ enum ByToken {
     ClassName(Literal),
     Testid(Literal),
     Multi,
-    /// NotEmpty is the default but can be specified to be explicit.
+    /// `NotEmpty` is the default but can be specified to be explicit.
     NotEmpty,
     AllowEmpty,
     /// Single is the default but can be specified to be explicit.
@@ -348,139 +344,154 @@ impl TryFrom<Meta> for ByToken {
 
     fn try_from(value: Meta) -> Result<Self, Self::Error> {
         match value {
-            Meta::Path(p) => match p {
-                k if k.is_ident("multi") => Ok(ByToken::Multi),
-                k if k.is_ident("not_empty") => Ok(ByToken::NotEmpty),
-                k if k.is_ident("allow_empty") => Ok(ByToken::AllowEmpty),
-                k if k.is_ident("single") => Ok(ByToken::Single),
-                k if k.is_ident("first") => Ok(ByToken::First),
-                k if k.is_ident("ignore_errors") => Ok(ByToken::IgnoreErrors),
-                k if k.is_ident("nowait") => Ok(ByToken::NoWait),
-                e => Err(syn::Error::new(
-                    e.span(),
-                    format!("unknown attribute {}", e.to_token_stream()),
-                )),
-            },
-            Meta::List(list) => {
-                match list.path {
-                    // wait(timeout_ms = u32, interval_ms = u32)
-                    ref p if p.is_ident("wait") => {
-                        let mut timeout: Option<Expr> = None;
-                        let mut interval: Option<Expr> = None;
-
-                        list.parse_nested_meta(|nested| {
-                            let value = || nested.value()?.parse::<Expr>();
-                            match &nested.path {
-                                k if k.is_ident("timeout_ms") => {
-                                    if timeout.is_some() {
-                                        return Err(nested.error("cannot specify timeout twice"));
-                                    }
-                                    timeout = Some(value()?);
-                                    Ok(())
-                                }
-                                k if k.is_ident("interval_ms") => {
-                                    if interval.is_some() {
-                                        return Err(nested.error("cannot specify interval twice"));
-                                    }
-                                    interval = Some(value()?);
-                                    Ok(())
-                                }
-                                e => Err(nested.error(format_args!(
-                                    "unknown attribute {} (must be timeout_ms or interval_ms)",
-                                    e.to_token_stream()
-                                ))),
-                            }
-                        })?;
-
-                        match (timeout, interval) {
-                        (Some(t), Some(i)) => Ok(ByToken::Wait(WaitOptions {
-                            timeout_ms: t,
-                            interval_ms: i,
-                        })),
-                        _ => Err(syn::Error::new(list.tokens.span(), "wait attribute requires the following args: timeout_ms, interval_ms"))
-                    }
-                    }
-                    e => Err(syn::Error::new(
-                        e.span(),
-                        format_args!("unknown attribute: {}", e.to_token_stream()),
-                    )),
-                }
-            }
-            Meta::NameValue(MetaNameValue {
-                path,
-                value,
-                ..
-            }) => match (path, value) {
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("id") => Ok(ByToken::Id(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("tag") => Ok(ByToken::Tag(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("link") => Ok(ByToken::LinkText(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("css") => Ok(ByToken::Css(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("xpath") => Ok(ByToken::XPath(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("name") => Ok(ByToken::Name(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("class") => Ok(ByToken::ClassName(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("testid") => Ok(ByToken::Testid(v.token())),
-                (
-                    k,
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(v),
-                        ..
-                    }),
-                ) if k.is_ident("description") => Ok(ByToken::Description(v.token())),
-                (k, expr) if k.is_ident("custom") => Ok(ByToken::CustomFn(expr)),
-                (k, ..) => Err(syn::Error::new(
-                    k.span(),
-                    format_args!("unknown attribute: {}", k.to_token_stream()),
-                )),
-            },
+            Meta::Path(p) => parse_path_token(&p),
+            Meta::List(list) => parse_list_token(&list),
+            Meta::NameValue(nv) => parse_name_value_token(&nv),
         }
+    }
+}
+
+fn parse_path_token(p: &syn::Path) -> Result<ByToken, syn::Error> {
+    match p {
+        k if k.is_ident("multi") => Ok(ByToken::Multi),
+        k if k.is_ident("not_empty") => Ok(ByToken::NotEmpty),
+        k if k.is_ident("allow_empty") => Ok(ByToken::AllowEmpty),
+        k if k.is_ident("single") => Ok(ByToken::Single),
+        k if k.is_ident("first") => Ok(ByToken::First),
+        k if k.is_ident("ignore_errors") => Ok(ByToken::IgnoreErrors),
+        k if k.is_ident("nowait") => Ok(ByToken::NoWait),
+        e => Err(syn::Error::new(e.span(), format!("unknown attribute {}", e.to_token_stream()))),
+    }
+}
+
+fn parse_list_token(list: &syn::MetaList) -> Result<ByToken, syn::Error> {
+    match &list.path {
+        p if p.is_ident("wait") => {
+            let (timeout, interval) = parse_wait_args(list)?;
+            match (timeout, interval) {
+                (Some(t), Some(i)) => Ok(ByToken::Wait(WaitOptions {
+                    timeout_ms: t,
+                    interval_ms: i,
+                })),
+                _ => Err(syn::Error::new(
+                    list.tokens.span(),
+                    "wait attribute requires the following args: timeout_ms, interval_ms",
+                )),
+            }
+        }
+        e => Err(syn::Error::new(
+            e.span(),
+            format_args!("unknown attribute: {}", e.to_token_stream()),
+        )),
+    }
+}
+
+fn parse_wait_args(list: &syn::MetaList) -> Result<(Option<Expr>, Option<Expr>), syn::Error> {
+    let mut timeout: Option<Expr> = None;
+    let mut interval: Option<Expr> = None;
+
+    list.parse_nested_meta(|nested| {
+        let value = || nested.value()?.parse::<Expr>();
+        match &nested.path {
+            k if k.is_ident("timeout_ms") => {
+                if timeout.is_some() {
+                    return Err(nested.error("cannot specify timeout twice"));
+                }
+                timeout = Some(value()?);
+                Ok(())
+            }
+            k if k.is_ident("interval_ms") => {
+                if interval.is_some() {
+                    return Err(nested.error("cannot specify interval twice"));
+                }
+                interval = Some(value()?);
+                Ok(())
+            }
+            e => Err(nested.error(format_args!(
+                "unknown attribute {} (must be timeout_ms or interval_ms)",
+                e.to_token_stream()
+            ))),
+        }
+    })?;
+
+    Ok((timeout, interval))
+}
+
+fn parse_name_value_token(nv: &MetaNameValue) -> Result<ByToken, syn::Error> {
+    let MetaNameValue {
+        path,
+        value,
+        ..
+    } = nv;
+    match (path, value) {
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("id") => Ok(ByToken::Id(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("tag") => Ok(ByToken::Tag(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("link") => Ok(ByToken::LinkText(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("css") => Ok(ByToken::Css(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("xpath") => Ok(ByToken::XPath(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("name") => Ok(ByToken::Name(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("class") => Ok(ByToken::ClassName(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("testid") => Ok(ByToken::Testid(v.token())),
+        (
+            k,
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(v),
+                ..
+            }),
+        ) if k.is_ident("description") => Ok(ByToken::Description(v.token())),
+        (k, expr) if k.is_ident("custom") => Ok(ByToken::CustomFn(expr.clone())),
+        (k, ..) => Err(syn::Error::new(
+            k.span(),
+            format_args!("unknown attribute: {}", k.to_token_stream()),
+        )),
     }
 }
 
@@ -496,13 +507,13 @@ impl ByTokens {
     pub fn validate(self, span: Span) -> syn::Result<Self> {
         let mut unique_tokens = HashSet::new();
 
-        for token in self.tokens.iter() {
+        for token in &self.tokens {
             let t = token.get_unique_type();
             if !unique_tokens.insert(t) {
                 bail!(span, "duplicate token '{t}' (cannot specify multiple)")
             }
         }
-        for token in self.tokens.iter() {
+        for token in &self.tokens {
             let disallowed = token.get_disallowed_types();
             for t in disallowed {
                 if unique_tokens.contains(t) {
@@ -525,7 +536,7 @@ impl ByTokens {
     pub fn take_by(&mut self) -> TokenStream {
         let mut ret = Vec::new();
         let tokens_in = std::mem::take(&mut self.tokens);
-        for token in tokens_in.into_iter() {
+        for token in tokens_in {
             match token {
                 ByToken::Id(id) => ret.push(quote! { By::Id(#id) }),
                 ByToken::Tag(tag) => ret.push(quote! { By::Tag(#tag) }),
@@ -825,26 +836,24 @@ impl ToTokens for SingleResolverArgs {
                 wait,
                 nowait,
             } => {
-                let ignore_errors_ident = match ignore_errors {
-                    Some(true) => quote!(::std::option::Option::Some(true)),
-                    _ => quote!(::std::option::Option::None),
+                let ignore_errors_ident = if let Some(true) = ignore_errors {
+                    quote!(::std::option::Option::Some(true))
+                } else {
+                    quote!(::std::option::Option::None)
                 };
-                let description_ident = match description {
-                    Some(desc) => {
-                        quote!(::std::option::Option::Some(::std::string::ToString::to_string(&#desc)))
+                let description_ident = if let Some(desc) = description {
+                    quote!(::std::option::Option::Some(::std::string::ToString::to_string(&#desc)))
+                } else {
+                    quote!(::std::option::Option::None)
+                };
+                let wait_ident = if let Some(opts) = wait {
+                    quote!(#opts)
+                } else if let Some(true) = nowait {
+                    quote! {
+                        ::std::option::Option::Some(::thirtyfour::extensions::query::ElementQueryWaitOptions::NoWait)
                     }
-                    None => quote!(::std::option::Option::None),
-                };
-                let wait_ident = match wait {
-                    Some(opts) => quote!(#opts),
-                    None => match nowait {
-                        Some(true) => {
-                            quote! {
-                                ::std::option::Option::Some(::thirtyfour::extensions::query::ElementQueryWaitOptions::NoWait)
-                            }
-                        }
-                        _ => quote!(::std::option::Option::None),
-                    },
+                } else {
+                    quote!(::std::option::Option::None)
                 };
                 let opts_ident = quote!(
                     ::thirtyfour::extensions::query::ElementQueryOptions::default()
@@ -853,17 +862,14 @@ impl ToTokens for SingleResolverArgs {
                         .set_wait(#wait_ident)
                 );
 
-                match first {
-                    Some(true) => {
-                        tokens.append_all(quote!(
-                            #ty::new_first_opts(base.clone(), #by, #opts_ident)
-                        ));
-                    }
-                    _ => {
-                        tokens.append_all(quote!(
-                            #ty::new_single_opts(base.clone(), #by, #opts_ident)
-                        ));
-                    }
+                if let Some(true) = first {
+                    tokens.append_all(quote!(
+                        #ty::new_first_opts(base.clone(), #by, #opts_ident)
+                    ));
+                } else {
+                    tokens.append_all(quote!(
+                        #ty::new_single_opts(base.clone(), #by, #opts_ident)
+                    ));
                 }
             }
         }
@@ -940,26 +946,24 @@ impl ToTokens for MultiResolverArgs {
                 wait,
                 nowait,
             } => {
-                let ignore_errors_ident = match ignore_errors {
-                    Some(true) => quote!(::std::option::Option::Some(true)),
-                    _ => quote!(::std::option::Option::None),
+                let ignore_errors_ident = if let Some(true) = ignore_errors {
+                    quote!(::std::option::Option::Some(true))
+                } else {
+                    quote!(::std::option::Option::None)
                 };
-                let description_ident = match description {
-                    Some(desc) => {
-                        quote!(::std::option::Option::Some(::std::string::ToString::to_string(&#desc)))
+                let description_ident = if let Some(desc) = description {
+                    quote!(::std::option::Option::Some(::std::string::ToString::to_string(&#desc)))
+                } else {
+                    quote!(::std::option::Option::None)
+                };
+                let wait_ident = if let Some(opts) = wait {
+                    quote!(#opts)
+                } else if let Some(true) = nowait {
+                    quote! {
+                        Some(::thirtyfour::extensions::query::ElementQueryWaitOptions::NoWait)
                     }
-                    None => quote!(::std::option::Option::None),
-                };
-                let wait_ident = match wait {
-                    Some(opts) => quote!(#opts),
-                    None => match nowait {
-                        Some(true) => {
-                            quote! {
-                                Some(::thirtyfour::extensions::query::ElementQueryWaitOptions::NoWait)
-                            }
-                        }
-                        _ => quote!(None),
-                    },
+                } else {
+                    quote!(None)
                 };
                 let opts_ident = quote!(
                     ::thirtyfour::extensions::query::ElementQueryOptions::default()
@@ -968,24 +972,21 @@ impl ToTokens for MultiResolverArgs {
                         .set_wait(#wait_ident)
                 );
 
-                match allow_empty {
-                    Some(true) => {
-                        tokens.append_all(
-                            quote!(#ty::new_allow_empty_opts(base.clone(), #by, #opts_ident)),
-                        );
-                    }
-                    _ => {
-                        tokens.append_all(quote!(
-                            #ty::new_not_empty_opts(base.clone(), #by, #opts_ident)
-                        ));
-                    }
+                if let Some(true) = allow_empty {
+                    tokens.append_all(
+                        quote!(#ty::new_allow_empty_opts(base.clone(), #by, #opts_ident)),
+                    );
+                } else {
+                    tokens.append_all(quote!(
+                        #ty::new_not_empty_opts(base.clone(), #by, #opts_ident)
+                    ));
                 }
             }
         }
     }
 }
 
-/// Converts GenericType<Args> to GenericType::<Args> to call ::new_*() on it.
+/// Converts `GenericType<Args>` to `GenericType::<Args>` to call `::new_*()` on it.
 ///
 /// Non-generic types will be returned as is.
 fn fix_type(mut ty: syn::Path) -> TokenStream {
