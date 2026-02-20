@@ -102,6 +102,20 @@ pub use session::Session;
 pub use storage::Storage;
 pub use webextension::WebExtension;
 
+/// Type alias for the pending commands map.
+type PendingCommands = Arc<StdMutex<HashMap<u64, oneshot::Sender<WebDriverResult<Value>>>>>;
+
+/// Context for the dispatch task, grouping shared state.
+struct DispatchContext {
+    pending: PendingCommands,
+    event_tx: broadcast::Sender<BiDiEvent>,
+    connected: Arc<AtomicBool>,
+    network_tx: Arc<OnceLock<broadcast::Sender<NetworkEvent>>>,
+    log_tx: Arc<OnceLock<broadcast::Sender<log::LogEvent>>>,
+    browsing_context_tx: Arc<OnceLock<broadcast::Sender<BrowsingContextEvent>>>,
+    script_tx: Arc<OnceLock<broadcast::Sender<ScriptEvent>>>,
+}
+
 /// Builder for creating a customized [`BiDiSession`].
 ///
 /// This allows configuring connection parameters before connecting.
@@ -305,7 +319,6 @@ impl BiDiSession {
     /// # Errors
     ///
     /// Returns an error if the WebSocket connection fails.
-    #[allow(clippy::too_many_lines)]
     pub async fn connect_with_config(
         ws_url: &str,
         config: BiDiSessionBuilder,
@@ -318,16 +331,12 @@ impl BiDiSession {
 
         tracing::debug!(url = %ws_url, "BiDi WebSocket connected");
 
-        let (sink, mut stream) = ws_stream.split();
+        let (sink, stream) = ws_stream.split();
         let (event_tx, _) = broadcast::channel::<BiDiEvent>(config.event_channel_capacity);
         let command_id = Arc::new(AtomicU64::new(1));
         let pending: Arc<StdMutex<HashMap<u64, oneshot::Sender<WebDriverResult<Value>>>>> =
             Arc::new(StdMutex::new(HashMap::new()));
         let connected = Arc::new(AtomicBool::new(true));
-
-        let pending_clone = Arc::clone(&pending);
-        let event_tx_clone = event_tx.clone();
-        let connected_clone = Arc::clone(&connected);
 
         let network_tx: Arc<OnceLock<broadcast::Sender<NetworkEvent>>> = Arc::new(OnceLock::new());
         let log_tx: Arc<OnceLock<broadcast::Sender<log::LogEvent>>> = Arc::new(OnceLock::new());
@@ -335,11 +344,40 @@ impl BiDiSession {
             Arc::new(OnceLock::new());
         let script_tx: Arc<OnceLock<broadcast::Sender<ScriptEvent>>> = Arc::new(OnceLock::new());
 
-        let network_tx_clone = Arc::clone(&network_tx);
-        let log_tx_clone = Arc::clone(&log_tx);
-        let browsing_context_tx_clone = Arc::clone(&browsing_context_tx);
-        let script_tx_clone = Arc::clone(&script_tx);
+        let ctx = DispatchContext {
+            pending: Arc::clone(&pending),
+            event_tx: event_tx.clone(),
+            connected: Arc::clone(&connected),
+            network_tx: Arc::clone(&network_tx),
+            log_tx: Arc::clone(&log_tx),
+            browsing_context_tx: Arc::clone(&browsing_context_tx),
+            script_tx: Arc::clone(&script_tx),
+        };
+        Self::spawn_dispatch_task(stream, ctx, ws_url);
 
+        Ok(Self {
+            ws_sink: Arc::new(TokioMutex::new(sink)),
+            command_id,
+            pending,
+            event_tx,
+            connected,
+            command_timeout: config.command_timeout,
+            network_tx,
+            log_tx,
+            browsing_context_tx,
+            script_tx,
+        })
+    }
+
+    fn spawn_dispatch_task(
+        mut stream: futures_util::stream::SplitStream<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        >,
+        ctx: DispatchContext,
+        ws_url: &str,
+    ) {
         let span = tracing::debug_span!("bidi_dispatch", url = %ws_url);
         tokio::spawn(async move {
             let _entered = span.enter();
@@ -364,31 +402,7 @@ impl BiDiSession {
 
                 match v.get("type").and_then(Value::as_str) {
                     Some("success" | "error") => {
-                        if let Some(id) = v.get("id").and_then(Value::as_u64) {
-                            let sender = {
-                                match pending_clone.lock() {
-                                    Ok(mut map) => map.remove(&id),
-                                    Err(poisoned) => {
-                                        tracing::error!("BiDi pending commands mutex poisoned");
-                                        poisoned.into_inner().remove(&id)
-                                    }
-                                }
-                            };
-                            if let Some(tx) = sender {
-                                let result =
-                                    if v.get("type").and_then(Value::as_str) == Some("success") {
-                                        Ok(v.get("result").cloned().unwrap_or(Value::Null))
-                                    } else {
-                                        let msg = v
-                                            .get("message")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("unknown BiDi error")
-                                            .to_string();
-                                        Err(WebDriverError::BiDi(msg))
-                                    };
-                                let _ = tx.send(result);
-                            }
-                        }
+                        Self::handle_response(&ctx.pending, &v);
                     }
                     Some("event") => {
                         let method =
@@ -398,36 +412,49 @@ impl BiDiSession {
 
                         tracing::trace!(method = %method, "BiDi event received");
 
-                        let _ = event_tx_clone.send(event.clone());
-
+                        let _ = ctx.event_tx.send(event.clone());
                         Self::broadcast_typed(
-                            &network_tx_clone,
-                            &log_tx_clone,
-                            &browsing_context_tx_clone,
-                            &script_tx_clone,
+                            &ctx.network_tx,
+                            &ctx.log_tx,
+                            &ctx.browsing_context_tx,
+                            &ctx.script_tx,
                             &event,
                         );
                     }
                     _ => {}
                 }
             }
-            connected_clone.store(false, Ordering::Relaxed);
-            let _ = event_tx_clone.send(BiDiEvent::ConnectionClosed);
+            ctx.connected.store(false, Ordering::Relaxed);
+            let _ = ctx.event_tx.send(BiDiEvent::ConnectionClosed);
             tracing::debug!("BiDi WebSocket connection closed");
         });
+    }
 
-        Ok(Self {
-            ws_sink: Arc::new(TokioMutex::new(sink)),
-            command_id,
-            pending,
-            event_tx,
-            connected,
-            command_timeout: config.command_timeout,
-            network_tx,
-            log_tx,
-            browsing_context_tx,
-            script_tx,
-        })
+    fn handle_response(pending: &PendingCommands, v: &Value) {
+        if let Some(id) = v.get("id").and_then(Value::as_u64) {
+            let sender = {
+                match pending.lock() {
+                    Ok(mut map) => map.remove(&id),
+                    Err(poisoned) => {
+                        tracing::error!("BiDi pending commands mutex poisoned");
+                        poisoned.into_inner().remove(&id)
+                    }
+                }
+            };
+            if let Some(tx) = sender {
+                let result = if v.get("type").and_then(Value::as_str) == Some("success") {
+                    Ok(v.get("result").cloned().unwrap_or(Value::Null))
+                } else {
+                    let msg = v
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown BiDi error")
+                        .to_string();
+                    Err(WebDriverError::BiDi(msg))
+                };
+                let _ = tx.send(result);
+            }
+        }
     }
 
     fn broadcast_typed(
