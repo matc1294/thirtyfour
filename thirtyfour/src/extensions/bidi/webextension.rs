@@ -7,10 +7,32 @@ use crate::error::WebDriverResult;
 
 /// `BiDi` `webExtension` domain accessor.
 ///
-/// # Selenium Grid Compatibility
+/// # Browser Compatibility
 ///
-/// **Important:** Selenium Grid's BiDi proxy may not support `webExtension.install`.
-/// If you get "Method not available" errors, load extensions via capabilities instead:
+/// ## Chrome
+///
+/// Chrome only supports the `path` type (unpacked directory). Use [`install_from_directory`](Self::install_from_directory).
+///
+/// Additionally, Chrome requires these flags for BiDi webExtension to work:
+/// ```ignore
+/// use thirtyfour::DesiredCapabilities;
+/// use thirtyfour::common::capabilities::chromium::ChromiumLikeCapabilities;
+///
+/// let mut caps = DesiredCapabilities::chrome();
+/// caps.add_arg("--remote-debugging-pipe")?;
+/// caps.add_arg("--enable-unsafe-extension-debugging")?;
+/// ```
+///
+/// ## Firefox
+///
+/// Firefox supports all types. For unsigned or unpacked extensions, Firefox 138+ is required.
+///
+/// ## Selenium Grid
+///
+/// Selenium Grid 4.33+ supports BiDi webExtension. Ensure your Grid version is up to date.
+/// If you get "Method not available" errors, either:
+/// 1. Upgrade Selenium Grid to 4.33+
+/// 2. Load extensions via capabilities instead:
 ///
 /// ```ignore
 /// use thirtyfour::DesiredCapabilities;
@@ -20,9 +42,6 @@ use crate::error::WebDriverResult;
 /// caps.add_extension(Path::new("/path/to/extension.crx"))?;
 /// let driver = WebDriver::new("http://grid:4444", caps).await?;
 /// ```
-///
-/// For direct browser connections (no Selenium Grid), BiDi webExtension should work
-/// with browsers that implement the WebDriver BiDi specification.
 #[derive(Debug)]
 pub struct WebExtension<'a> {
     session: &'a BiDiSession,
@@ -41,7 +60,7 @@ impl<'a> WebExtension<'a> {
     /// a `.crx`, `.xpi`, or other extension archive file on the machine running
     /// the browser.
     ///
-    /// **Note:** May not work with Selenium Grid. See struct documentation.
+    /// **Note:** Chrome does not support this type. Use [`install_from_directory`](Self::install_from_directory) for Chrome.
     ///
     /// Returns the extension id.
     ///
@@ -71,7 +90,7 @@ impl<'a> WebExtension<'a> {
     /// This uses the `path` extension data type. The path should point to an
     /// unpacked extension directory on the machine running the browser.
     ///
-    /// **Note:** May not work with Selenium Grid. See struct documentation.
+    /// **Recommended for Chrome** - Chrome only supports this type.
     ///
     /// Returns the extension id.
     ///
@@ -101,7 +120,7 @@ impl<'a> WebExtension<'a> {
     /// This reads the file locally and sends it as base64-encoded data using
     /// the `base64` extension data type.
     ///
-    /// **Note:** May not work with Selenium Grid. See struct documentation.
+    /// **Note:** Chrome does not support this type. Use [`install_from_directory`](Self::install_from_directory) for Chrome.
     ///
     /// Returns the extension id.
     ///
@@ -120,7 +139,7 @@ impl<'a> WebExtension<'a> {
     ///
     /// This uses the `base64` extension data type.
     ///
-    /// **Note:** May not work with Selenium Grid. See struct documentation.
+    /// **Note:** Chrome does not support this type. Use [`install_from_directory`](Self::install_from_directory) for Chrome.
     ///
     /// Returns the extension id.
     ///
