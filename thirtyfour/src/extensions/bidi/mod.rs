@@ -9,6 +9,60 @@
 //! with connection state tracking, configurable timeouts, and multiple event subscription
 //! patterns.
 //!
+//! # Runtime Flexibility
+//!
+//! The BiDi session spawns a background task to dispatch incoming messages.
+//! You control how this task runs:
+//!
+//! ## Option 1: Spawn the Future (Recommended)
+//!
+//! ```ignore
+//! let bidi = BiDiSessionBuilder::new()
+//!     .connect_with_driver(&driver)
+//!     .await?;
+//!
+//! // Spawn the dispatch future on your runtime of choice
+//! tokio::spawn(bidi.dispatch_future());
+//! // or: async_std::spawn(bidi.dispatch_future());
+//! // or: futures::executor::block_on(bidi.dispatch_future());
+//! ```
+//!
+//! ## Option 2: Manual Polling
+//!
+//! ```ignore
+//! let mut bidi = BiDiSessionBuilder::new()
+//!     .connect_with_driver(&driver)
+//!     .await?;
+//!
+//! // Poll manually in your own loop
+//! loop {
+//!     let more = bidi.poll_dispatch().await?;
+//!     if !more {
+//!         break; // Connection closed
+//!     }
+//! }
+//! ```
+//!
+//! # Linking to WebDriver Lifecycle
+//!
+//! To automatically stop the BiDi dispatch when the WebDriver session ends,
+//! monitor the connection state:
+//!
+//! ```ignore
+//! let bidi = BiDiSessionBuilder::new()
+//!     .connect_with_driver(&driver)
+//!     .await?;
+//!
+//! let bidi_clone = bidi.clone();
+//! tokio::spawn(async move {
+//!     // This will end when the WebSocket closes
+//!     bidi_clone.dispatch_future().await;
+//! });
+//!
+//! // Later, when driver.quit() is called, the WebSocket will close
+//! // and dispatch_future() will complete automatically.
+//! ```
+//!
 //! # Timeout Configuration
 //!
 //! Network conditions can cause BiDi commands to hang. Always configure timeouts
@@ -21,7 +75,7 @@
 //! let session = BiDiSessionBuilder::new()
 //!     .command_timeout(Duration::from_secs(10))
 //!     .event_channel_capacity(512)
-//!     .connect(&ws_url)
+//!     .connect_with_driver(&driver)
 //!     .await?;
 //! ```
 //!
@@ -77,11 +131,15 @@
 //! ```
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use pin_project_lite::pin_project;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, oneshot, Mutex as TokioMutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -132,6 +190,9 @@ struct DispatchContext {
 ///     .event_channel_capacity(512)
 ///     .connect_with_driver(driver)
 ///     .await?;
+///
+/// // Spawn the dispatch future on your runtime
+/// tokio::spawn(bidi.dispatch_future());
 /// # Ok(())
 /// # }
 /// ```
@@ -150,6 +211,7 @@ struct DispatchContext {
 ///     .install_crypto_provider()
 ///     .connect_with_driver(driver)
 ///     .await?;
+/// tokio::spawn(bidi.dispatch_future());
 /// # Ok(())
 /// # }
 /// ```
@@ -169,6 +231,7 @@ struct DispatchContext {
 ///     .basic_auth("username", "password")
 ///     .connect_with_driver(driver)
 ///     .await?;
+/// tokio::spawn(bidi.dispatch_future());
 /// # Ok(())
 /// # }
 /// ```
@@ -243,6 +306,9 @@ impl BiDiSessionBuilder {
 
     /// Connect to the `BiDi` WebSocket endpoint with the configured settings.
     ///
+    /// **Important:** After connecting, you must run the dispatch loop.
+    /// Use either [`BiDiSession::dispatch_future`] or [`BiDiSession::poll_dispatch`].
+    ///
     /// # Errors
     ///
     /// Returns `WebDriverError::BiDi` if the WebSocket connection fails.
@@ -257,6 +323,9 @@ impl BiDiSessionBuilder {
     /// - `basic_auth()` for HTTP Basic Authentication
     /// - `command_timeout()` for command timeouts
     /// - `event_channel_capacity()` for event buffer size
+    ///
+    /// **Important:** After connecting, you must run the dispatch loop.
+    /// Use either [`BiDiSession::dispatch_future`] or [`BiDiSession::poll_dispatch`].
     ///
     /// # Errors
     ///
@@ -331,9 +400,114 @@ pub enum BiDiEvent {
     },
 }
 
+pin_project! {
+    /// Future that runs the BiDi dispatch loop.
+    ///
+    /// This future processes incoming WebSocket messages and dispatches
+    /// them to the appropriate channels. It completes when the WebSocket
+    /// connection closes or an error occurs.
+    ///
+    /// Spawn this on your preferred async runtime:
+    /// ```ignore
+    /// tokio::spawn(bidi.dispatch_future());
+    /// // or
+    /// async_std::spawn(bidi.dispatch_future());
+    /// ```
+    #[must_use = "dispatch_future does nothing unless spawned or awaited"]
+    pub struct DispatchFuture {
+        stream: futures_util::stream::SplitStream<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        >,
+        ctx: DispatchContext,
+        #[pin]
+        span: tracing::Span,
+    }
+}
+
+impl Future for DispatchFuture {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let _entered = this.span.enter();
+
+        loop {
+            match futures_util::StreamExt::poll_next_unpin(this.stream, cx) {
+                Poll::Ready(Some(msg)) => {
+                    let text = match msg {
+                        Ok(Message::Text(t)) => t,
+                        Ok(Message::Close(_)) => {
+                            this.ctx.connected.store(false, Ordering::Relaxed);
+                            let _ = this.ctx.event_tx.send(BiDiEvent::ConnectionClosed);
+                            tracing::debug!("BiDi WebSocket connection closed");
+                            return Poll::Ready(());
+                        }
+                        Ok(_) => continue,
+                        Err(e) => {
+                            tracing::error!("BiDi WebSocket error: {e}");
+                            this.ctx.connected.store(false, Ordering::Relaxed);
+                            let _ = this.ctx.event_tx.send(BiDiEvent::ConnectionClosed);
+                            return Poll::Ready(());
+                        }
+                    };
+
+                    let v: Value = match serde_json::from_str(&text) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!("BiDi: failed to parse message: {e}");
+                            continue;
+                        }
+                    };
+
+                    match v.get("type").and_then(Value::as_str) {
+                        Some("success" | "error") => {
+                            BiDiSession::handle_response(&this.ctx.pending, &v);
+                        }
+                        Some("event") => {
+                            let method =
+                                v.get("method").and_then(Value::as_str).unwrap_or("").to_string();
+                            let params = v.get("params").cloned().unwrap_or(Value::Null);
+                            let event = parse_event(&method, params);
+
+                            tracing::trace!(method = %method, "BiDi event received");
+
+                            let _ = this.ctx.event_tx.send(event.clone());
+                            BiDiSession::broadcast_typed(
+                                &this.ctx.network_tx,
+                                &this.ctx.log_tx,
+                                &this.ctx.browsing_context_tx,
+                                &this.ctx.script_tx,
+                                &event,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                Poll::Ready(None) => {
+                    this.ctx.connected.store(false, Ordering::Relaxed);
+                    let _ = this.ctx.event_tx.send(BiDiEvent::ConnectionClosed);
+                    tracing::debug!("BiDi WebSocket stream ended");
+                    return Poll::Ready(());
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
+}
+
 /// A live `WebDriver` `BiDi` session over a WebSocket connection.
 ///
 /// Obtain one by calling [`WebDriver::bidi_connect`][crate::WebDriver::bidi_connect].
+///
+/// # Dispatch Loop
+///
+/// After creating a `BiDiSession`, you must run the dispatch loop to process
+/// incoming messages. Choose one of:
+///
+/// - [`dispatch_future()`](Self::dispatch_future) - Returns a `Future` to spawn
+/// - [`poll_dispatch()`](Self::poll_dispatch) - Manual polling for custom loops
 pub struct BiDiSession {
     /// Sends frames to the WebSocket (async mutex for safe await).
     ws_sink: Arc<
@@ -343,6 +517,14 @@ pub struct BiDiSession {
                     tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
                 >,
                 Message,
+            >,
+        >,
+    >,
+    /// WebSocket stream for receiving messages.
+    ws_stream: Option<
+        futures_util::stream::SplitStream<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
             >,
         >,
     >,
@@ -368,6 +550,7 @@ impl std::fmt::Debug for BiDiSession {
         f.debug_struct("BiDiSession")
             .field("connected", &self.connected.load(Ordering::Relaxed))
             .field("command_timeout", &self.command_timeout)
+            .field("dispatch_started", &self.ws_stream.is_none())
             .finish_non_exhaustive()
     }
 }
@@ -377,6 +560,10 @@ impl BiDiSession {
     ///
     /// For timeout and capacity configuration, use [`BiDiSessionBuilder`].
     ///
+    /// **Important:** After connecting, you must run the dispatch loop.
+    /// Use either [`dispatch_future()`](Self::dispatch_future) or
+    /// [`poll_dispatch()`](Self::poll_dispatch).
+    ///
     /// # Errors
     ///
     /// Returns an error if the WebSocket connection fails.
@@ -385,6 +572,10 @@ impl BiDiSession {
     }
 
     /// Connect to the `BiDi` WebSocket endpoint with custom configuration.
+    ///
+    /// **Important:** After connecting, you must run the dispatch loop.
+    /// Use either [`dispatch_future()`](Self::dispatch_future) or
+    /// [`poll_dispatch()`](Self::poll_dispatch).
     ///
     /// # Errors
     ///
@@ -423,19 +614,9 @@ impl BiDiSession {
             Arc::new(OnceLock::new());
         let script_tx: Arc<OnceLock<broadcast::Sender<ScriptEvent>>> = Arc::new(OnceLock::new());
 
-        let ctx = DispatchContext {
-            pending: Arc::clone(&pending),
-            event_tx: event_tx.clone(),
-            connected: Arc::clone(&connected),
-            network_tx: Arc::clone(&network_tx),
-            log_tx: Arc::clone(&log_tx),
-            browsing_context_tx: Arc::clone(&browsing_context_tx),
-            script_tx: Arc::clone(&script_tx),
-        };
-        Self::spawn_dispatch_task(stream, ctx, ws_url);
-
         Ok(Self {
             ws_sink: Arc::new(TokioMutex::new(sink)),
+            ws_stream: Some(stream),
             command_id,
             pending,
             event_tx,
@@ -481,26 +662,91 @@ impl BiDiSession {
         Ok(ws_stream)
     }
 
-    fn spawn_dispatch_task(
-        mut stream: futures_util::stream::SplitStream<
-            tokio_tungstenite::WebSocketStream<
-                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-            >,
-        >,
-        ctx: DispatchContext,
-        ws_url: &str,
-    ) {
-        let span = tracing::debug_span!("bidi_dispatch", url = %ws_url);
-        tokio::spawn(async move {
-            let _entered = span.enter();
-            while let Some(msg) = stream.next().await {
+    /// Returns a future that runs the BiDi dispatch loop.
+    ///
+    /// This future processes incoming WebSocket messages and dispatches
+    /// them to the appropriate channels. It completes when the WebSocket
+    /// connection closes or an error occurs.
+    ///
+    /// **Note:** Can only be called once per session. Returns `None` if
+    /// the dispatch loop has already been started.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let bidi = BiDiSessionBuilder::new()
+    ///     .connect_with_driver(&driver)
+    ///     .await?;
+    ///
+    /// // Spawn on your preferred runtime
+    /// tokio::spawn(bidi.dispatch_future());
+    /// // or: async_std::spawn(bidi.dispatch_future());
+    /// ```
+    #[must_use = "dispatch_future must be spawned or awaited to process messages"]
+    pub fn dispatch_future(&mut self) -> Option<DispatchFuture> {
+        let stream = self.ws_stream.take()?;
+        let ctx = DispatchContext {
+            pending: Arc::clone(&self.pending),
+            event_tx: self.event_tx.clone(),
+            connected: Arc::clone(&self.connected),
+            network_tx: Arc::clone(&self.network_tx),
+            log_tx: Arc::clone(&self.log_tx),
+            browsing_context_tx: Arc::clone(&self.browsing_context_tx),
+            script_tx: Arc::clone(&self.script_tx),
+        };
+        let span = tracing::debug_span!("bidi_dispatch");
+
+        Some(DispatchFuture {
+            stream,
+            ctx,
+            span,
+        })
+    }
+
+    /// Manually poll for a single incoming message.
+    ///
+    /// Returns `Ok(true)` if a message was processed, `Ok(false)` if the
+    /// connection has closed, or an error on WebSocket failure.
+    ///
+    /// Use this for custom event loops where you need more control:
+    ///
+    /// ```ignore
+    /// loop {
+    ///     let more = bidi.poll_dispatch().await?;
+    ///     if !more {
+    ///         break; // Connection closed
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// **Note:** Can only be called if `dispatch_future()` has not been called.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the WebSocket receives an error.
+    pub async fn poll_dispatch(&mut self) -> WebDriverResult<bool> {
+        let stream = self.ws_stream.as_mut().ok_or_else(|| {
+            WebDriverError::BiDi("dispatch loop already started via dispatch_future()".to_string())
+        })?;
+
+        let msg = stream.next().await;
+
+        match msg {
+            Some(msg) => {
                 let text = match msg {
                     Ok(Message::Text(t)) => t,
-                    Ok(Message::Close(_)) => break,
-                    Ok(_) => continue,
+                    Ok(Message::Close(_)) => {
+                        self.connected.store(false, Ordering::Relaxed);
+                        let _ = self.event_tx.send(BiDiEvent::ConnectionClosed);
+                        tracing::debug!("BiDi WebSocket connection closed");
+                        return Ok(false);
+                    }
+                    Ok(_) => return Ok(true),
                     Err(e) => {
                         tracing::error!("BiDi WebSocket error: {e}");
-                        break;
+                        self.connected.store(false, Ordering::Relaxed);
+                        let _ = self.event_tx.send(BiDiEvent::ConnectionClosed);
+                        return Err(WebDriverError::BiDi(format!("WebSocket error: {e}")));
                     }
                 };
 
@@ -508,13 +754,13 @@ impl BiDiSession {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::warn!("BiDi: failed to parse message: {e}");
-                        continue;
+                        return Ok(true);
                     }
                 };
 
                 match v.get("type").and_then(Value::as_str) {
                     Some("success" | "error") => {
-                        Self::handle_response(&ctx.pending, &v);
+                        Self::handle_response(&self.pending, &v);
                     }
                     Some("event") => {
                         let method =
@@ -524,22 +770,27 @@ impl BiDiSession {
 
                         tracing::trace!(method = %method, "BiDi event received");
 
-                        let _ = ctx.event_tx.send(event.clone());
+                        let _ = self.event_tx.send(event.clone());
                         Self::broadcast_typed(
-                            &ctx.network_tx,
-                            &ctx.log_tx,
-                            &ctx.browsing_context_tx,
-                            &ctx.script_tx,
+                            &self.network_tx,
+                            &self.log_tx,
+                            &self.browsing_context_tx,
+                            &self.script_tx,
                             &event,
                         );
                     }
                     _ => {}
                 }
+
+                Ok(true)
             }
-            ctx.connected.store(false, Ordering::Relaxed);
-            let _ = ctx.event_tx.send(BiDiEvent::ConnectionClosed);
-            tracing::debug!("BiDi WebSocket connection closed");
-        });
+            None => {
+                self.connected.store(false, Ordering::Relaxed);
+                let _ = self.event_tx.send(BiDiEvent::ConnectionClosed);
+                tracing::debug!("BiDi WebSocket stream ended");
+                Ok(false)
+            }
+        }
     }
 
     fn handle_response(pending: &PendingCommands, v: &Value) {
@@ -605,6 +856,12 @@ impl BiDiSession {
     #[must_use]
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
+    }
+
+    /// Check if the dispatch loop has been started.
+    #[must_use]
+    pub fn is_dispatch_started(&self) -> bool {
+        self.ws_stream.is_none()
     }
 
     /// Send a `BiDi` command and await the response with a custom timeout.

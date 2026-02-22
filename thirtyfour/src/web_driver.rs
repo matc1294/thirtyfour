@@ -165,8 +165,11 @@ impl WebDriver {
     /// For Chrome, set `"webSocketUrl": true` in capabilities.
     /// For Firefox, BiDi is enabled by default in supported versions.
     ///
-    /// Returns a [`BiDiSession`][crate::extensions::bidi::BiDiSession] that can be
-    /// used to interact with the browser via the BiDi protocol.
+    /// **Important:** After connecting, you must spawn the dispatch loop:
+    /// ```ignore
+    /// let mut bidi = driver.bidi_connect().await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
+    /// ```
     ///
     /// # Limitations
     ///
@@ -205,6 +208,15 @@ impl WebDriver {
     /// - **Custom timeouts** (call `command_timeout()`)
     /// - **Custom event channel capacity** (call `event_channel_capacity()`)
     ///
+    /// **Important:** After connecting, you must spawn the dispatch loop:
+    /// ```ignore
+    /// let mut bidi = BiDiSessionBuilder::new()
+    ///     .install_crypto_provider()
+    ///     .connect_with_driver(driver)
+    ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
+    /// ```
+    ///
     /// # Example with TLS
     ///
     /// ```no_run
@@ -212,10 +224,11 @@ impl WebDriver {
     /// # use thirtyfour::prelude::*;
     /// # use thirtyfour::BiDiSessionBuilder;
     /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
-    /// let bidi = BiDiSessionBuilder::new()
+    /// let mut bidi = BiDiSessionBuilder::new()
     ///     .install_crypto_provider()
     ///     .connect_with_driver(driver)
     ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
     /// # Ok(())
     /// # }
     /// ```
@@ -227,11 +240,12 @@ impl WebDriver {
     /// # use thirtyfour::prelude::*;
     /// # use thirtyfour::BiDiSessionBuilder;
     /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
-    /// let bidi = BiDiSessionBuilder::new()
+    /// let mut bidi = BiDiSessionBuilder::new()
     ///     .install_crypto_provider()
     ///     .basic_auth("user", "pass")
     ///     .connect_with_driver(driver)
     ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
     /// # Ok(())
     /// # }
     /// ```

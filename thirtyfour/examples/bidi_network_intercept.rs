@@ -24,7 +24,12 @@ async fn main() -> color_eyre::Result<()> {
     let driver = WebDriver::new("http://localhost:4444", caps).await?;
 
     // Connect to the BiDi channel.
-    let bidi = driver.bidi_connect().await?;
+    let mut bidi = driver.bidi_connect().await?;
+
+    // Spawn the dispatch loop to process incoming messages.
+    // This runs in the background and dispatches events to channels.
+    let dispatch = bidi.dispatch_future().expect("dispatch_future already called");
+    tokio::spawn(dispatch);
 
     // Tell the browser we want network events.
     bidi.session().subscribe(&["network.beforeRequestSent"], &[]).await?;

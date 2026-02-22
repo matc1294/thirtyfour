@@ -35,7 +35,7 @@ native-tls = ["reqwest/rustls"]
 tokio-multi-threaded = ["tokio/rt-multi-thread"]
 component = ["thirtyfour-macros"]
 debug_sync_quit = []
-bidi = ["dep:tokio-tungstenite", "dep:rustls"]
+bidi = ["dep:tokio-tungstenite", "dep:rustls", "dep:pin-project-lite"]
 
 
 [dependencies]
@@ -66,6 +66,7 @@ url = "2.5.8"
 const_format = "0.2.35"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true }
+pin-project-lite = { version = "0.2", optional = true }
 
 # Optional HTTP client. Not needed if you supply your own.
 reqwest = { version = "0.13.2", default-features = false, features = [
