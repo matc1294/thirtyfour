@@ -1,7 +1,7 @@
-//! Thirtyfour is a Selenium / WebDriver library for Rust, for automated website UI testing.
+//! Thirtyfour is a Selenium / `WebDriver` library for Rust, for automated website UI testing.
 //!
-//! It supports the W3C WebDriver v1 spec.
-//! Tested with Chrome and Firefox, although any W3C-compatible WebDriver
+//! It supports the W3C `WebDriver` v1 spec.
+//! Tested with Chrome and Firefox, although any W3C-compatible `WebDriver`
 //! should work.
 //!
 //! ## Getting Started
@@ -10,11 +10,11 @@
 //!
 //! ## Features
 //!
-//! - All W3C WebDriver and WebElement methods supported
+//! - All W3C `WebDriver` and `WebElement` methods supported
 //! - Async / await support (tokio only)
-//! - Create new browser session directly via WebDriver (e.g. chromedriver)
+//! - Create new browser session directly via `WebDriver` (e.g. chromedriver)
 //! - Create new browser session via Selenium Standalone or Grid
-//! - Find elements (via all common selectors e.g. Id, Class, CSS, Tag, XPath)
+//! - Find elements (via all common selectors e.g. Id, Class, CSS, Tag, `XPath`)
 //! - Send keys to elements, including key-combinations
 //! - Execute Javascript
 //! - Action Chains
@@ -23,7 +23,7 @@
 //! - Shadow DOM support
 //! - Alert support
 //! - Capture / Save screenshot of browser or individual element as PNG
-//! - Some Chrome DevTools Protocol (CDP) support
+//! - Some Chrome `DevTools` Protocol (CDP) support
 //! - Advanced query interface including explicit waits and various predicates
 //! - Component Wrappers (similar to `Page Object Model`)
 //!
@@ -173,11 +173,6 @@ pub use common::{
 };
 pub use switch_to::SwitchTo;
 pub use web_driver::WebDriver;
-#[cfg(feature = "selenium-manager")]
-pub use web_driver_process::{
-    start_webdriver_process, start_webdriver_process_full, WebDriverProcess,
-    WebDriverProcessBrowser, WebDriverProcessPort,
-};
 pub use web_element::WebElement;
 
 /// Allow importing the common types via `use thirtyfour::prelude::*`.
@@ -186,8 +181,6 @@ pub mod prelude {
     pub use crate::error::{WebDriverError, WebDriverResult};
     pub use crate::extensions::query::{ElementPoller, ElementQueryable, ElementWaitable};
     pub use crate::session::scriptret::ScriptRet;
-    #[cfg(feature = "selenium-manager")]
-    pub use crate::start_webdriver_process;
     pub use crate::switch_to::SwitchTo;
     pub use crate::WebDriver;
     pub use crate::WebElement;
@@ -210,6 +203,10 @@ pub mod components;
 pub mod error;
 /// Extensions for specific browsers.
 pub mod extensions;
+
+#[cfg(feature = "bidi")]
+/// Re-export BiDi types for convenience.
+pub use extensions::bidi::{BiDiEvent, BiDiSession, BiDiSessionBuilder};
 /// Everything related to driving the underlying WebDriver session.
 pub mod session;
 /// Miscellaneous support functions for `thirtyfour` tests.
@@ -218,8 +215,6 @@ pub mod support;
 mod js;
 mod switch_to;
 mod web_driver;
-#[cfg(feature = "selenium-manager")]
-mod web_driver_process;
 mod web_element;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");

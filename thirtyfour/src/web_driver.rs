@@ -117,9 +117,11 @@ impl WebDriver {
             .map_err(|e| WebDriverError::ParseError(format!("invalid url: {e}")))?;
 
         let client = Arc::new(client);
-        let session_id = start_session(client.as_ref(), &server_url, &config, capabilities).await?;
+        let (session_id, ws_url) =
+            start_session(client.as_ref(), &server_url, &config, capabilities).await?;
 
-        let handle = SessionHandle::new_with_config(client, server_url, session_id, config)?;
+        let handle =
+            SessionHandle::new_with_config(client, server_url, session_id, ws_url, config)?;
         Ok(Self {
             handle: Arc::new(handle),
         })
@@ -154,6 +156,112 @@ impl WebDriver {
     /// use this if you don't want your driver to automatically close
     pub fn leak(self) -> Result<(), AlreadyQuit> {
         self.handle.leak()
+    }
+
+    #[cfg(feature = "bidi")]
+    /// Connect to the WebDriver BiDi channel.
+    ///
+    /// Requires the browser to have been started with BiDi capabilities enabled.
+    /// For Chrome, set `"webSocketUrl": true` in capabilities.
+    /// For Firefox, BiDi is enabled by default in supported versions.
+    ///
+    /// **Important:** After connecting, you must spawn the dispatch loop:
+    /// ```ignore
+    /// let mut bidi = driver.bidi_connect().await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
+    /// ```
+    ///
+    /// # Limitations
+    ///
+    /// This convenience method does not configure TLS or authentication.
+    /// If your infrastructure requires:
+    /// - **TLS/SSL** (`wss://` connections): Use [`Self::bidi_connect_with_builder`] with
+    ///   `BiDiSessionBuilder::install_crypto_provider()`
+    /// - **HTTP Basic Authentication**: Use [`Self::bidi_connect_with_builder`] with
+    ///   `BiDiSessionBuilder::basic_auth()`
+    ///
+    /// # Errors
+    ///
+    /// Returns `WebDriverError::BiDi` if:
+    /// - The browser did not return a `webSocketUrl` in session capabilities
+    /// - The WebSocket connection fails
+    pub async fn bidi_connect(
+        &self,
+    ) -> crate::error::WebDriverResult<crate::extensions::bidi::BiDiSession> {
+        let ws_url = self.handle.websocket_url.as_deref().ok_or_else(|| {
+            crate::prelude::WebDriverError::BiDi(
+                "No webSocketUrl in session capabilities. \
+                 Enable BiDi in your browser capabilities \
+                 (e.g., for Chrome: set 'webSocketUrl: true')."
+                    .to_string(),
+            )
+        })?;
+        crate::extensions::bidi::BiDiSession::connect(ws_url).await
+    }
+
+    #[cfg(feature = "bidi")]
+    /// Connect to BiDi using a builder for custom configuration.
+    ///
+    /// Use this method instead of [`Self::bidi_connect`] when you need:
+    /// - **TLS/SSL support** for `wss://` connections (call `install_crypto_provider()`)
+    /// - **HTTP Basic Authentication** (call `basic_auth(username, password)`)
+    /// - **Custom timeouts** (call `command_timeout()`)
+    /// - **Custom event channel capacity** (call `event_channel_capacity()`)
+    ///
+    /// **Important:** After connecting, you must spawn the dispatch loop:
+    /// ```ignore
+    /// let mut bidi = BiDiSessionBuilder::new()
+    ///     .install_crypto_provider()
+    ///     .connect_with_driver(driver)
+    ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
+    /// ```
+    ///
+    /// # Example with TLS
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use thirtyfour::prelude::*;
+    /// # use thirtyfour::BiDiSessionBuilder;
+    /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+    /// let mut bidi = BiDiSessionBuilder::new()
+    ///     .install_crypto_provider()
+    ///     .connect_with_driver(driver)
+    ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Example with Basic Auth
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use thirtyfour::prelude::*;
+    /// # use thirtyfour::BiDiSessionBuilder;
+    /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+    /// let mut bidi = BiDiSessionBuilder::new()
+    ///     .install_crypto_provider()
+    ///     .basic_auth("user", "pass")
+    ///     .connect_with_driver(driver)
+    ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn bidi_connect_with_builder(
+        &self,
+        builder: crate::extensions::bidi::BiDiSessionBuilder,
+    ) -> crate::error::WebDriverResult<crate::extensions::bidi::BiDiSession> {
+        let ws_url = self.handle.websocket_url.as_deref().ok_or_else(|| {
+            crate::prelude::WebDriverError::BiDi(
+                "No webSocketUrl in session capabilities. \
+                 Enable BiDi in your browser capabilities \
+                 (e.g., for Chrome: set 'webSocketUrl: true')."
+                    .to_string(),
+            )
+        })?;
+        builder.connect(ws_url).await
     }
 }
 

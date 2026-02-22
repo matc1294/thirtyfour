@@ -109,18 +109,20 @@ pub struct ElementRect {
 
 impl ElementRect {
     /// The coordinates of the rectangle center point, rounded to integers.
+    #[must_use]
     pub fn icenter(&self) -> (i64, i64) {
         let (x, y) = self.center();
-        (x as i64, y as i64)
+        (x.round() as i64, y.round() as i64)
     }
 
     /// The coordinates of the rectangle center point.
+    #[must_use]
     pub fn center(&self) -> (f64, f64) {
         (self.x + (self.width / 2.0), self.y + (self.height / 2.0))
     }
 }
 
-/// Helper to Serialize/Deserialize ElementRef from JSON Value.
+/// Helper to Serialize/Deserialize `ElementRef` from JSON Value.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ElementRef {
@@ -140,12 +142,13 @@ pub enum ElementRef {
 
 impl ElementRef {
     /// The element id, as returned by the webdriver.
+    #[must_use]
     pub fn id(&self) -> &str {
         match self {
             ElementRef::Element {
                 id,
-            } => id,
-            ElementRef::ShadowElement {
+            }
+            | ElementRef::ShadowElement {
                 id,
             } => id,
         }

@@ -28,17 +28,17 @@ Thirtyfour is a Selenium / WebDriver library for Rust, for automated website UI 
 
 ## Feature Flags
 
-- `rustls-tls`: (Default) Use rustls to provide TLS support (via reqwest).
+- `rustls`: (Default) Use rustls to provide TLS support (via reqwest).
 - `native-tls`: Use native TLS (via reqwest).
 - `component`: (Default) Enable the `Component` derive macro (via thirtyfour_macros).
-- `selenium-manager`: (Default) Enable the Selenium manager, which downloads then starts
-  the correct webdriver.
+- `bidi`: Enable WebDriver BiDi (bidirectional protocol) support for real-time
+  event handling, network interception, script evaluation, and more.
+  Requires Chrome 115+ or Firefox 119+. See `examples/bidi_network_intercept.rs`
+  for usage examples.
 
 ### Example (async):
 
-To run this example:
-
-    cargo run --example tokio_async
+Requires a running WebDriver server (e.g., `chromedriver --port=9515`).
 
 ```rust
 use thirtyfour::prelude::*;
@@ -46,9 +46,7 @@ use thirtyfour::prelude::*;
 #[tokio::main]
 async fn main() -> WebDriverResult<()> {
      let caps = DesiredCapabilities::chrome();
-     let server_url = "http://localhost:9515";
-     start_webdriver_process(server_url, &caps, true)?;
-     let driver = WebDriver::new(server_url, caps).await?;
+     let driver = WebDriver::new("http://localhost:9515", caps).await?;
 
      // Navigate to https://wikipedia.org.
      driver.goto("https://wikipedia.org").await?;
@@ -72,6 +70,43 @@ async fn main() -> WebDriverResult<()> {
      driver.quit().await?;
 
      Ok(())
+}
+```
+
+### BiDi Example (async):
+
+Enable BiDi support in Chrome and intercept network requests:
+
+```rust
+use thirtyfour::extensions::bidi::{network::InterceptPhase, BiDiEvent, NetworkEvent};
+use thirtyfour::prelude::*;
+
+#[tokio::main]
+async fn main() -> WebDriverResult<()> {
+    let mut caps = DesiredCapabilities::chrome();
+    // Enable BiDi protocol support
+    caps.insert_base_capability("webSocketUrl".to_string(), serde_json::Value::Bool(true));
+
+    let driver = WebDriver::new("http://localhost:9515", caps).await?;
+
+    // Connect to the BiDi channel
+    let mut bidi = driver.bidi_connect().await?;
+
+    // Spawn the dispatch loop to process incoming WebSocket messages
+    tokio::spawn(bidi.dispatch_future().expect("dispatch already started"));
+
+    // Subscribe to network events
+    let mut rx = bidi.subscribe_network().await?;
+
+    driver.goto("https://example.com").await?;
+
+    // Receive network events
+    if let Ok(NetworkEvent::BeforeRequestSent(e)) = rx.recv().await {
+        println!("Request: {} {}", e.request.method, e.request.url);
+    }
+
+    driver.quit().await?;
+    Ok(())
 }
 ```
 

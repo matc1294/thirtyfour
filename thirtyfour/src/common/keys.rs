@@ -66,6 +66,7 @@ pub enum Key {
 
 impl Key {
     /// Get the char value of the key.
+    #[must_use]
     pub fn value(&self) -> char {
         match self {
             Key::Null => '\u{e000}',
@@ -122,8 +123,7 @@ impl Key {
             Key::F10 => '\u{e03a}',
             Key::F11 => '\u{e03b}',
             Key::F12 => '\u{e03c}',
-            Key::Meta => '\u{e03d}',
-            Key::Command => '\u{e03d}',
+            Key::Meta | Key::Command => '\u{e03d}',
         }
     }
 }
@@ -148,7 +148,7 @@ impl From<Key> for char {
     }
 }
 
-/// TypingData is a wrapper around a `Vec<char>` that can be used to send Key to the browser.
+/// `TypingData` is a wrapper around a `Vec<char>` that can be used to send Key to the browser.
 #[derive(Debug)]
 pub struct TypingData {
     data: Vec<char>,
@@ -156,6 +156,7 @@ pub struct TypingData {
 
 impl TypingData {
     /// Get the underlying `Vec<char>`.
+    #[must_use]
     pub fn as_vec(&self) -> Vec<char> {
         self.data.clone()
     }

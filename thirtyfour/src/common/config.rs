@@ -32,6 +32,7 @@ impl Default for WebDriverConfig {
 
 impl WebDriverConfig {
     /// Create new `WebDriverConfigBuilder`.
+    #[must_use]
     pub fn builder() -> WebDriverConfigBuilder {
         WebDriverConfigBuilder::new()
     }
@@ -60,6 +61,7 @@ impl WebDriverConfig {
         since = "0.34.1",
         note = "This associated function is now a constant `WebDriverConfig::DEFAULT_USER_AGENT`"
     )]
+    #[must_use]
     pub fn default_user_agent() -> HeaderValue {
         Self::DEFAULT_USER_AGENT
     }
@@ -82,6 +84,7 @@ impl Default for WebDriverConfigBuilder {
 
 impl WebDriverConfigBuilder {
     /// Create a new `WebDriverConfigBuilder`.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             keep_alive: true,
@@ -91,19 +94,22 @@ impl WebDriverConfigBuilder {
         }
     }
 
-    /// Set the keep_alive option.
+    /// Set the `keep_alive` option.
+    #[must_use]
     pub fn keep_alive(mut self, keep_alive: bool) -> Self {
         self.keep_alive = keep_alive;
         self
     }
 
     /// Set the specified element poller.
+    #[must_use]
     pub fn poller(mut self, poller: Arc<dyn IntoElementPoller + Send + Sync>) -> Self {
         self.poller = Some(poller);
         self
     }
 
     /// Set the user agent.
+    #[must_use]
     pub fn user_agent<V>(mut self, user_agent: V) -> Self
     where
         HeaderValue: TryFrom<V>,
@@ -114,12 +120,17 @@ impl WebDriverConfigBuilder {
     }
 
     /// Set the reqwest timeout.
+    #[must_use]
     pub fn reqwest_timeout(mut self, timeout: Duration) -> Self {
         self.reqwest_timeout = timeout;
         self
     }
 
     /// Build `WebDriverConfig` using builder options.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if the user agent conversion fails.
     pub fn build(self) -> WebDriverResult<WebDriverConfig> {
         Ok(WebDriverConfig {
             keep_alive: self.keep_alive,

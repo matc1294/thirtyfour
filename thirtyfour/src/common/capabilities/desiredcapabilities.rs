@@ -33,12 +33,13 @@ const OSS_W3C_CONVERSION: &[(&str, &str)] = &[
     ("platform", "platformName"),
 ];
 
-/// Convert the given serde_json::Value into a W3C-compatible Capabilities struct.
+/// Convert the given `serde_json::Value` into a W3C-compatible Capabilities struct.
+#[must_use]
 pub fn make_w3c_caps(caps: &Value) -> Value {
     let mut always_match = json!({});
 
     if let Some(caps_map) = caps.as_object() {
-        for (k, v) in caps_map.iter() {
+        for (k, v) in caps_map {
             if !v.is_null() {
                 for (k_from, k_to) in OSS_W3C_CONVERSION {
                     if k_from == k {
@@ -70,37 +71,44 @@ pub fn make_w3c_caps(caps: &Value) -> Value {
 pub struct DesiredCapabilities;
 
 impl DesiredCapabilities {
-    /// Create a ChromeCapabilities struct.
+    /// Create a `ChromeCapabilities` struct.
+    #[must_use]
     pub fn chrome() -> ChromeCapabilities {
         ChromeCapabilities::new()
     }
 
-    /// Create a ChromiumCapabilities struct.
+    /// Create a `ChromiumCapabilities` struct.
+    #[must_use]
     pub fn chromium() -> ChromiumCapabilities {
         ChromiumCapabilities::new()
     }
 
-    /// Create an EdgeCapabilities struct.
+    /// Create an `EdgeCapabilities` struct.
+    #[must_use]
     pub fn edge() -> EdgeCapabilities {
         EdgeCapabilities::new()
     }
 
-    /// Create a FirefoxCapabilities struct.
+    /// Create a `FirefoxCapabilities` struct.
+    #[must_use]
     pub fn firefox() -> FirefoxCapabilities {
         FirefoxCapabilities::new()
     }
 
-    /// Create an InternetExplorerCapabilities struct.
+    /// Create an `InternetExplorerCapabilities` struct.
+    #[must_use]
     pub fn internet_explorer() -> InternetExplorerCapabilities {
         InternetExplorerCapabilities::new()
     }
 
-    /// Create an OperaCapabilities struct.
+    /// Create an `OperaCapabilities` struct.
+    #[must_use]
     pub fn opera() -> OperaCapabilities {
         OperaCapabilities::new()
     }
 
-    /// Create a SafariCapabilities struct.
+    /// Create a `SafariCapabilities` struct.
+    #[must_use]
     pub fn safari() -> SafariCapabilities {
         SafariCapabilities::new()
     }
@@ -108,16 +116,20 @@ impl DesiredCapabilities {
 
 /// Provides common features for all Capabilities structs.
 pub trait CapabilitiesHelper {
-    /// Get an immutable reference to the underlying serde_json::Value.
-    fn _get(&self, key: &str) -> Option<&Value>;
+    /// Get an immutable reference to the underlying `serde_json::Value`.
+    fn get_value(&self, key: &str) -> Option<&Value>;
 
-    /// Get a mutable reference to the underlying serde_json::Value.
-    fn _get_mut(&mut self, key: &str) -> Option<&mut Value>;
+    /// Get a mutable reference to the underlying `serde_json::Value`.
+    fn get_value_mut(&mut self, key: &str) -> Option<&mut Value>;
 
     /// Set the specified capability at the root level.
     fn insert_base_capability(&mut self, key: String, value: Value);
 
     /// Add any Serialize-able object to the capabilities under the specified key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_base_capability<T>(&mut self, key: &str, value: T) -> WebDriverResult<()>
     where
         T: Serialize,
@@ -127,100 +139,171 @@ pub trait CapabilitiesHelper {
     }
 
     /// Set the desired browser version.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_version(&mut self, version: &str) -> WebDriverResult<()> {
         self.set_base_capability("version", version)
     }
 
     /// Set the desired browser platform.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_platform(&mut self, platform: &str) -> WebDriverResult<()> {
         self.set_base_capability("platform", platform)
     }
 
     /// Set whether the session supports executing user-supplied Javascript.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_javascript_enabled(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("javascriptEnabled", enabled)
     }
 
     /// Set whether the session can interact with database storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_database_enabled(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("databaseEnabled", enabled)
     }
 
     /// Set whether the session can set and query the browser's location context.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_location_context_enabled(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("locationContextEnabled", enabled)
     }
 
     /// Set whether the session can interact with the application cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_application_cache_enabled(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("applicationCacheEnabled", enabled)
     }
 
     /// Set whether the session can query for the browser's connectivity and disable it if desired.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_browser_connection_enabled(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("browserConnectionEnabled", enabled)
     }
 
     /// Set whether the session supports interactions with local storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_web_storage_enabled(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("webStorageEnabled", enabled)
     }
 
     /// Set whether the session should accept all SSL certificates by default.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     #[deprecated(since = "0.32.0-rc.5", note = "please use `accept_insecure_certs` instead")]
     fn accept_ssl_certs(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("acceptSslCerts", enabled)
     }
 
     /// Set whether the session should accept insecure SSL certificates by default.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn accept_insecure_certs(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("acceptInsecureCerts", enabled)
     }
 
     /// Set whether the session can rotate the current page's layout between portrait and landscape
     /// orientations. Only applies to mobile platforms.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_rotatable(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("rotatable", enabled)
     }
 
     /// Set whether the session is capable of generating native events when simulating user input.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_native_events(&mut self, enabled: bool) -> WebDriverResult<()> {
         self.set_base_capability("nativeEvents", enabled)
     }
 
     /// Set the proxy to use.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_proxy(&mut self, proxy: Proxy) -> WebDriverResult<()> {
         self.set_base_capability("proxy", proxy)
     }
 
     /// Set the behaviour to be followed when an unexpected alert is encountered.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_unexpected_alert_behaviour(&mut self, behaviour: AlertBehaviour) -> WebDriverResult<()> {
         self.set_base_capability("unexpectedAlertBehaviour", behaviour)
     }
 
     /// Set whether elements are scrolled into the viewport for interation to align with the top
     /// or the bottom of the viewport. The default is to align with the top.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_element_scroll_behaviour(&mut self, behaviour: ScrollBehaviour) -> WebDriverResult<()> {
         self.set_base_capability("elementScrollBehavior", behaviour)
     }
 
     /// Get whether the session can interact with modal popups such as `window.alert`.
+    #[must_use]
     fn handles_alerts(&self) -> Option<bool> {
-        self._get("handlesAlerts").and_then(|x| x.as_bool())
+        self.get_value("handlesAlerts").and_then(Value::as_bool)
     }
 
     /// Get whether the session supports CSS selectors when searching for elements.
+    #[must_use]
     fn css_selectors_enabled(&self) -> Option<bool> {
-        self._get("cssSelectorsEnabled").and_then(|x| x.as_bool())
+        self.get_value("cssSelectorsEnabled").and_then(Value::as_bool)
     }
 
     /// Get the current page load strategy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if deserialization fails.
     fn page_load_strategy(&self) -> WebDriverResult<PageLoadStrategy> {
-        let strategy = self._get("pageLoadStrategy").map(|x| from_value(x.clone())).transpose()?;
+        let strategy =
+            self.get_value("pageLoadStrategy").map(|x| from_value(x.clone())).transpose()?;
         Ok(strategy.unwrap_or_default())
     }
 
     /// Set the page load strategy to use.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn set_page_load_strategy(&mut self, strategy: PageLoadStrategy) -> WebDriverResult<()> {
         self.set_base_capability("pageLoadStrategy", strategy)
     }
@@ -235,12 +318,16 @@ pub trait BrowserCapabilitiesHelper: CapabilitiesHelper {
     const KEY: &'static str;
 
     /// Add any Serialize-able object to the capabilities under the browser's custom key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn insert_browser_option(
         &mut self,
         key: impl Into<String>,
         value: impl Serialize,
     ) -> WebDriverResult<()> {
-        match self._get_mut(Self::KEY) {
+        match self.get_value_mut(Self::KEY) {
             Some(Value::Object(v)) => {
                 v.insert(key.into(), to_value(value)?);
             }
@@ -251,27 +338,33 @@ pub trait BrowserCapabilitiesHelper: CapabilitiesHelper {
 
     /// Remove the custom browser-specific property if it exists.
     fn remove_browser_option(&mut self, key: &str) {
-        if let Some(Value::Object(v)) = &mut self._get_mut(Self::KEY) {
+        if let Some(Value::Object(v)) = &mut self.get_value_mut(Self::KEY) {
             v.remove(key);
         }
     }
 
     /// Get the custom browser-specific property if it exists.
+    #[must_use]
     fn browser_option<T>(&self, key: &str) -> Option<T>
     where
         T: DeserializeOwned,
     {
-        self._get(Self::KEY)
+        self.get_value(Self::KEY)
             .and_then(|options| options.get(key))
             .and_then(|option| from_value(option.clone()).ok())
     }
 
     /// Get the current list of command-line arguments as a vec.
+    #[must_use]
     fn args(&self) -> Vec<String> {
         self.browser_option("args").unwrap_or_default()
     }
 
     /// Remove the specified command-line argument if it had been added previously.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WebDriverError` if serialization fails.
     fn remove_arg(&mut self, arg: &str) -> WebDriverResult<()> {
         let mut args = self.args();
         if args.is_empty() {
@@ -283,17 +376,18 @@ pub trait BrowserCapabilitiesHelper: CapabilitiesHelper {
     }
 
     /// Return true if the specified arg is currently set.
+    #[must_use]
     fn has_arg(&self, arg: &str) -> bool {
         self.args().iter().any(|s| s == arg)
     }
 }
 
 impl CapabilitiesHelper for Capabilities {
-    fn _get(&self, key: &str) -> Option<&Value> {
+    fn get_value(&self, key: &str) -> Option<&Value> {
         self.get(key)
     }
 
-    fn _get_mut(&mut self, key: &str) -> Option<&mut Value> {
+    fn get_value_mut(&mut self, key: &str) -> Option<&mut Value> {
         self.get_mut(key)
     }
 
@@ -378,7 +472,7 @@ pub enum PageLoadStrategy {
     /// Wait for full page loading (the default).
     #[default]
     Normal,
-    /// Wait for the DOMContentLoaded event (html content downloaded and parsed only).
+    /// Wait for the `DOMContentLoaded` event (html content downloaded and parsed only).
     Eager,
     /// Return immediately after the initial page content is fully received
     /// (html content downloaded).
