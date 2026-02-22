@@ -144,10 +144,14 @@ bidi.send_command_with_timeout("network.addIntercept", params, Duration::from_se
 #### Removed: `selenium-manager` feature
 
 The `selenium-manager` feature and `web_driver_process` module have been removed.
-These depended on a workspace-local path (`../selenium/rust`) that is not available
-in the published crate. Users who relied on `start_webdriver_process` should manage
-their WebDriver process externally (e.g., via `std::process::Command` or a dedicated
-tool).
+The dependency pointed to a workspace-local path (`../selenium/rust`) that does not
+exist in a standalone checkout of this repository. This caused the crate to fail
+compilation entirely when the feature was enabled (the default), which blocked all
+development, testing, and CI validation of any changes to the library. Removing it
+was a prerequisite for the codebase to be buildable and testable at all.
+
+Users who relied on `start_webdriver_process` should manage their WebDriver process
+externally (e.g., via `std::process::Command` or a dedicated tool).
 
 **BREAKING**: `start_webdriver_process`, `start_webdriver_process_full`,
 `WebDriverProcess`, `WebDriverProcessBrowser`, `WebDriverProcessPort` are no longer
