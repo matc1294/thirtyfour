@@ -143,9 +143,77 @@ use pin_project_lite::pin_project;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, oneshot, Mutex as TokioMutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use url::Url;
 
 use crate::error::{WebDriverError, WebDriverResult};
 
+/// Configuration for BiDi WebSocket connection URL.
+///
+/// Supports multiple ways to specify the connection:
+/// - Use the webSocketUrl returned in session capabilities (default)
+/// - Derive from the Selenium hub server URL
+/// - Specify a custom WebSocket URL directly
+#[derive(Debug, Clone)]
+pub enum BiDiConnectionUrl {
+    /// Direct WebSocket URL (ws:// or wss://)
+    Direct(String),
+}
+
+impl BiDiConnectionUrl {
+    /// Create a BiDi connection URL by deriving from the Selenium hub server URL.
+    ///
+    /// This takes the HTTP/HTTPS scheme and host:port from the hub
+    /// and converts it to ws:/wss:// for WebSocket connections.
+    ///
+    /// Note: The path is not derived because the actual BiDi path
+    /// is returned by the browser at session creation time.
+    pub fn from_server_url(server_url: &str) -> WebDriverResult<Self> {
+        let url = Url::parse(server_url)
+            .map_err(|e| WebDriverError::ParseError(format!("invalid server URL: {e}")))?;
+
+        let scheme = match url.scheme() {
+            "http" => "ws",
+            "https" => "wss",
+            s => {
+                return Err(WebDriverError::ParseError(format!(
+                    "unsupported scheme '{}', expected http or https",
+                    s
+                )))
+            }
+        };
+
+        let host = url
+            .host_str()
+            .ok_or_else(|| WebDriverError::ParseError("URL missing host".to_string()))?;
+
+        let port = url.port().unwrap_or(match scheme {
+            "ws" => 80,
+            "wss" => 443,
+            _ => 80,
+        });
+
+        Ok(Self::Direct(format!("{}://{}:{}", scheme, host, port)))
+    }
+
+    /// Convert to full WebSocket URL string.
+    pub fn to_websocket_string(&self) -> String {
+        match self {
+            Self::Direct(url) => url.clone(),
+        }
+    }
+}
+
+impl From<String> for BiDiConnectionUrl {
+    fn from(s: String) -> Self {
+        Self::Direct(s)
+    }
+}
+
+impl From<&str> for BiDiConnectionUrl {
+    fn from(s: &str) -> Self {
+        Self::Direct(s.to_string())
+    }
+}
 pub use browser::Browser;
 pub use browsing_context::{BrowsingContext, BrowsingContextEvent};
 pub use cdp::Cdp;
@@ -241,6 +309,7 @@ pub struct BiDiSessionBuilder {
     pub(crate) command_timeout: Option<Duration>,
     pub(crate) install_crypto_provider: bool,
     pub(crate) basic_auth: Option<(String, String)>,
+    pub(crate) websocket_url: Option<BiDiConnectionUrl>,
 }
 
 impl Default for BiDiSessionBuilder {
@@ -250,6 +319,7 @@ impl Default for BiDiSessionBuilder {
             command_timeout: None,
             install_crypto_provider: false,
             basic_auth: None,
+            websocket_url: None,
         }
     }
 }
@@ -304,6 +374,52 @@ impl BiDiSessionBuilder {
         self
     }
 
+    /// Set a custom WebSocket URL for the BiDi connection.
+    ///
+    /// Use this when:
+    /// - The Selenium Grid provides a specific WebSocket route different from capabilities
+    /// - You want to override the default webSocketUrl from session capabilities
+    ///
+    /// # Example with Grid-provided URL
+    ///
+    /// ```no_run
+    /// # use thirtyfour::prelude::*;
+    /// # use thirtyfour::BiDiSessionBuilder;
+    /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+    /// let bidi = BiDiSessionBuilder::new()
+    ///     .websocket_url("ws://grid-node:9222/session/abc/se/bidi")
+    ///     .connect_with_driver(&driver)
+    ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Example deriving from hub
+    ///
+    /// ```no_run
+    /// # use thirtyfour::prelude::*;
+    /// # use thirtyfour::{BiDiSessionBuilder, extensions::bidi::BiDiConnectionUrl};
+    /// # async fn example(driver: &WebDriver) -> WebDriverResult<()> {
+    /// // Derive ws://host:port from the hub URL (path is not used)
+    /// let derived_url = BiDiConnectionUrl::from_server_url(
+    ///     "http://localhost:4444/wd/hub"
+    /// )?;
+    ///
+    /// let bidi = BiDiSessionBuilder::new()
+    ///     .websocket_url(derived_url)
+    ///     .connect_with_driver(&driver)
+    ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future());
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn websocket_url(mut self, url: impl Into<BiDiConnectionUrl>) -> Self {
+        self.websocket_url = Some(url.into());
+        self
+    }
+
     /// Connect to the `BiDi` WebSocket endpoint with the configured settings.
     ///
     /// **Important:** After connecting, you must run the dispatch loop.
@@ -316,13 +432,19 @@ impl BiDiSessionBuilder {
         BiDiSession::connect_with_config(ws_url, self).await
     }
 
-    /// Connect using `WebDriver`'s session `webSocketUrl`.
+    /// Connect using `WebDriver`'s session capabilities or custom URL.
     ///
     /// This method respects all builder configuration including:
     /// - `install_crypto_provider()` for TLS connections
     /// - `basic_auth()` for HTTP Basic Authentication
     /// - `command_timeout()` for command timeouts
     /// - `event_channel_capacity()` for event buffer size
+    /// - `websocket_url()` to override the default capability-derived URL
+    ///
+    /// **Priority order:**
+    /// 1. Custom WebSocket URL set via `websocket_url()`
+    /// 2. webSocketUrl from session capabilities (via driver)
+    /// 3. Derive from driver's server_url if neither above available
     ///
     /// **Important:** After connecting, you must run the dispatch loop.
     /// Use either [`BiDiSession::dispatch_future`] or [`BiDiSession::poll_dispatch`].
@@ -330,21 +452,48 @@ impl BiDiSessionBuilder {
     /// # Errors
     ///
     /// Returns `WebDriverError::BiDi` if:
-    /// - The browser did not return a `webSocketUrl` in session capabilities
+    /// - No webSocketUrl available and cannot derive from server URL
     /// - The WebSocket connection fails
     pub async fn connect_with_driver(
         self,
         driver: &crate::WebDriver,
     ) -> WebDriverResult<BiDiSession> {
-        let ws_url = driver.handle.websocket_url.as_deref().ok_or_else(|| {
-            WebDriverError::BiDi(
-                "No webSocketUrl in session capabilities. \
-                 Enable BiDi in your browser capabilities \
-                 (e.g., for Chrome: set 'webSocketUrl: true')."
-                    .to_string(),
-            )
-        })?;
-        self.connect(ws_url).await
+        let ws_url = if let Some(ref custom_url) = self.websocket_url {
+            // User specified custom URL - use it directly
+            custom_url.to_websocket_string()
+        } else if let Some(ref capability_url) = driver.handle.websocket_url {
+            // Use URL from session capabilities
+            capability_url.clone()
+        } else {
+            // Fallback: try to derive from hub server URL
+            // Convert the Url to string, removing any path
+            let server_url = driver.handle.server_url();
+            let hub_scheme = server_url.scheme();
+            let hub_host = server_url
+                .host_str()
+                .ok_or_else(|| WebDriverError::BiDi("Server URL missing host".to_string()))?;
+            let hub_port = server_url.port().unwrap_or(match hub_scheme {
+                "http" => 80,
+                "https" => 443,
+                _ => 80,
+            });
+
+            // Use ws or wss based on the original scheme
+            let ws_scheme = match hub_scheme {
+                "http" => "ws",
+                "https" => "wss",
+                s => {
+                    return Err(WebDriverError::BiDi(format!(
+                        "unsupported server URL scheme '{}', expected http or https",
+                        s
+                    )))
+                }
+            };
+
+            format!("{}://{}:{}", ws_scheme, hub_host, hub_port)
+        };
+
+        self.connect(&ws_url).await
     }
 }
 
@@ -1229,5 +1378,35 @@ mod tests {
         let builder = BiDiSessionBuilder::default();
         assert_eq!(builder.event_channel_capacity, 256);
         assert_eq!(builder.command_timeout, None);
+    }
+
+    #[test]
+    fn test_builder_basic_auth() {
+        let builder = BiDiSessionBuilder::new().basic_auth("user", "pass");
+        assert_eq!(builder.basic_auth, Some(("user".to_string(), "pass".to_string())));
+    }
+
+    #[test]
+    fn test_builder_basic_auth_none_by_default() {
+        let builder = BiDiSessionBuilder::new();
+        assert_eq!(builder.basic_auth, None);
+    }
+
+    #[test]
+    fn test_from_server_url_http_converts_to_ws() {
+        let result = BiDiConnectionUrl::from_server_url("http://localhost:4444/wd/hub").unwrap();
+        assert_eq!(result.to_websocket_string(), "ws://localhost:4444");
+    }
+
+    #[test]
+    fn test_from_server_url_https_converts_to_wss() {
+        let result = BiDiConnectionUrl::from_server_url("https://grid.example.com").unwrap();
+        assert_eq!(result.to_websocket_string(), "wss://grid.example.com:443");
+    }
+
+    #[test]
+    fn test_from_server_url_http_with_ip_and_port() {
+        let result = BiDiConnectionUrl::from_server_url("http://192.168.1.100:8080/hub").unwrap();
+        assert_eq!(result.to_websocket_string(), "ws://192.168.1.100:8080");
     }
 }

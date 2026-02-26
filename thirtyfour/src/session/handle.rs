@@ -98,6 +98,11 @@ impl SessionHandle {
         &self.session_id
     }
 
+    /// The server URL used to connect to the WebDriver.
+    pub fn server_url(&self) -> &Url {
+        &self.server_url
+    }
+
     /// The configuration used by this instance.
     ///
     /// NOTE: It's sometimes useful to have separate instances pointing at the same
