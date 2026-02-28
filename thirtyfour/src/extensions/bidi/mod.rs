@@ -465,32 +465,9 @@ impl BiDiSessionBuilder {
             // Use URL from session capabilities
             capability_url.clone()
         } else {
-            // Fallback: try to derive from hub server URL
-            // Convert the Url to string, removing any path
+            // Fallback: derive from hub server URL
             let server_url = driver.handle.server_url();
-            let hub_scheme = server_url.scheme();
-            let hub_host = server_url
-                .host_str()
-                .ok_or_else(|| WebDriverError::BiDi("Server URL missing host".to_string()))?;
-            let hub_port = server_url.port().unwrap_or(match hub_scheme {
-                "http" => 80,
-                "https" => 443,
-                _ => 80,
-            });
-
-            // Use ws or wss based on the original scheme
-            let ws_scheme = match hub_scheme {
-                "http" => "ws",
-                "https" => "wss",
-                s => {
-                    return Err(WebDriverError::BiDi(format!(
-                        "unsupported server URL scheme '{}', expected http or https",
-                        s
-                    )))
-                }
-            };
-
-            format!("{}://{}:{}", ws_scheme, hub_host, hub_port)
+            BiDiConnectionUrl::from_server_url(server_url.as_str())?.to_websocket_string()
         };
 
         self.connect(&ws_url).await
@@ -687,6 +664,8 @@ pub struct BiDiSession {
     connected: Arc<AtomicBool>,
     /// Optional session-level command timeout.
     command_timeout: Option<Duration>,
+    /// Capacity for typed event channels.
+    event_channel_capacity: usize,
     /// Typed event channels (lazy-initialized).
     network_tx: Arc<OnceLock<broadcast::Sender<NetworkEvent>>>,
     log_tx: Arc<OnceLock<broadcast::Sender<log::LogEvent>>>,
@@ -771,6 +750,7 @@ impl BiDiSession {
             event_tx,
             connected,
             command_timeout: config.command_timeout,
+            event_channel_capacity: config.event_channel_capacity,
             network_tx,
             log_tx,
             browsing_context_tx,
@@ -957,14 +937,13 @@ impl BiDiSession {
                 let result = if v.get("type").and_then(Value::as_str) == Some("success") {
                     Ok(v.get("result").cloned().unwrap_or(Value::Null))
                 } else {
-                    let msg = v
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("unknown BiDi error")
-                        .to_string();
-                    Err(WebDriverError::BiDi(msg))
+                    let error_code = v.get("error").and_then(Value::as_str).unwrap_or("unknown");
+                    let msg = v.get("message").and_then(Value::as_str).unwrap_or("unknown error");
+                    Err(WebDriverError::BiDi(format!("[{error_code}] {msg}")))
                 };
-                let _ = tx.send(result);
+                if tx.send(result).is_err() {
+                    tracing::trace!(id = %id, "Received BiDi response for orphaned command (receiver dropped)");
+                }
             }
         }
     }
@@ -1013,6 +992,69 @@ impl BiDiSession {
         self.ws_stream.is_none()
     }
 
+    /// Explicitly close the BiDi WebSocket connection and clean up resources.
+    ///
+    /// This method performs a graceful shutdown:
+    /// 1. Marks the session as disconnected
+    /// 2. Sends a WebSocket Close frame to the browser
+    /// 3. Clears pending commands (sends errors to any waiting callers)
+    /// 4. Broadcasts `BiDiEvent::ConnectionClosed` to event subscribers
+    ///
+    /// # When to Use
+    ///
+    /// Call this before `driver.quit()` or when you're done with BiDi features:
+    ///
+    /// ```ignore
+    /// let mut bidi = BiDiSessionBuilder::new()
+    ///     .connect_with_driver(&driver)
+    ///     .await?;
+    /// tokio::spawn(bidi.dispatch_future());
+    ///
+    /// // ... use BiDi ...
+    ///
+    /// // Clean up before quitting WebDriver
+    /// bidi.close().await;
+    /// driver.quit().await?;
+    /// ```
+    ///
+    /// # Idempotent
+    ///
+    /// Safe to call multiple times. Subsequent calls are no-ops.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error only if the WebSocket Close frame fails to send.
+    /// Cleanup of pending commands and event broadcast always occur.
+    pub async fn close(&self) -> WebDriverResult<()> {
+        if !self.connected.swap(false, Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let _ = self.event_tx.send(BiDiEvent::ConnectionClosed);
+
+        {
+            let mut pending_map = match self.pending.lock() {
+                Ok(map) => map,
+                Err(poisoned) => {
+                    tracing::error!("BiDi pending commands mutex poisoned during close");
+                    poisoned.into_inner()
+                }
+            };
+
+            for (_id, tx) in pending_map.drain() {
+                let _ = tx.send(Err(WebDriverError::BiDi("connection closed".to_string())));
+            }
+        }
+
+        let mut sink = self.ws_sink.lock().await;
+        sink.send(Message::Close(None))
+            .await
+            .map_err(|e| WebDriverError::BiDi(format!("WebSocket close failed: {e}")))?;
+
+        tracing::debug!("BiDi WebSocket connection closed");
+        Ok(())
+    }
+
     /// Send a `BiDi` command and await the response with a custom timeout.
     ///
     /// # Errors
@@ -1055,6 +1097,14 @@ impl BiDiSession {
         tokio::time::timeout(timeout, rx)
             .await
             .map_err(|_| {
+                match self.pending.lock() {
+                    Ok(mut map) => {
+                        map.remove(&id);
+                    }
+                    Err(poisoned) => {
+                        poisoned.into_inner().remove(&id);
+                    }
+                }
                 WebDriverError::BiDi(format!("command '{method}' timed out after {timeout:?}"))
             })?
             .map_err(|_| WebDriverError::BiDi("response channel closed".to_string()))?
@@ -1100,7 +1150,10 @@ impl BiDiSession {
                 .await
                 .map_err(|e| WebDriverError::BiDi(format!("WebSocket send failed: {e}")))?;
 
-            rx.await.map_err(|_| WebDriverError::BiDi("response channel closed".to_string()))?
+            rx.await.map_err(|_| {
+                tracing::trace!(id = %id, "BiDi command response channel closed");
+                WebDriverError::BiDi("response channel closed".to_string())
+            })?
         }
     }
 
@@ -1117,7 +1170,9 @@ impl BiDiSession {
     /// call [`Self::subscribe_network`] for that.
     #[must_use]
     pub fn network_events(&self) -> broadcast::Receiver<NetworkEvent> {
-        self.network_tx.get_or_init(|| broadcast::channel(256).0).subscribe()
+        self.network_tx
+            .get_or_init(|| broadcast::channel(self.event_channel_capacity).0)
+            .subscribe()
     }
 
     /// Subscribe to log domain events only.
@@ -1127,7 +1182,7 @@ impl BiDiSession {
     /// call [`Self::subscribe_log`] for that.
     #[must_use]
     pub fn log_events(&self) -> broadcast::Receiver<log::LogEvent> {
-        self.log_tx.get_or_init(|| broadcast::channel(256).0).subscribe()
+        self.log_tx.get_or_init(|| broadcast::channel(self.event_channel_capacity).0).subscribe()
     }
 
     /// Subscribe to browsing context domain events only.
@@ -1137,7 +1192,9 @@ impl BiDiSession {
     /// call [`Self::subscribe_browsing_context`] for that.
     #[must_use]
     pub fn browsing_context_events(&self) -> broadcast::Receiver<BrowsingContextEvent> {
-        self.browsing_context_tx.get_or_init(|| broadcast::channel(256).0).subscribe()
+        self.browsing_context_tx
+            .get_or_init(|| broadcast::channel(self.event_channel_capacity).0)
+            .subscribe()
     }
 
     /// Subscribe to script domain events only.
@@ -1147,7 +1204,7 @@ impl BiDiSession {
     /// call [`Self::subscribe_script`] for that.
     #[must_use]
     pub fn script_events(&self) -> broadcast::Receiver<ScriptEvent> {
-        self.script_tx.get_or_init(|| broadcast::channel(256).0).subscribe()
+        self.script_tx.get_or_init(|| broadcast::channel(self.event_channel_capacity).0).subscribe()
     }
 
     /// Subscribe to all network events and return a typed receiver.
