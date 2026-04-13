@@ -275,24 +275,35 @@ This design maintains full backward compatibility:
 
 ## Implementation Notes
 
-1. **State Tracking:** Use `Arc<AtomicCell<DispatchState>>` for thread-safe state tracking without locks in the hot path. Alternative: `Arc<AtomicU8>` with bit flags if minimizing dependencies.
+1. **State Tracking:** Use `Arc<AtomicU8>` with constants (0=Idle, 1=Running, 2=Stopped, 3=Cancelled) to avoid adding `atomic-cell` dependency. Simpler and more direct.
 
-2. **Handle Storage:** The `dispatch_handle` needs to be stored. This requires users to either:
-   - Use the new `spawn_dispatch()` convenience method
-   - Manually register the handle after spawning (we could add a `register_dispatch_handle()` method)
-   - Design choice: add `spawn_dispatch()` as the primary API, keep `dispatch_future()` for advanced use cases
+2. **Handle Storage:** The `dispatch_handle` is stored when users call `spawn_dispatch()`. For users who manually spawn with `tokio::spawn()`, they must manage the handle themselves (YAGNI - don't add complexity for edge cases).
 
-3. **Token Lifecycle:** Parent token is created when `BiDiSession` is created. Child token is created in `dispatch_future()` and passed to `DispatchFuture`. Both tokens are cancelled in `cancel_dispatch()`.
+3. **Token Lifecycle:** Single `CancellationToken` is created when `BiDiSession` is created. Cloned and passed to `DispatchFuture`. Cancelled in `cancel_dispatch()`.
 
-4. **Thread Safety:** All new fields use `Arc` with appropriate synchronization primitives (`TokioMutex`, `AtomicCell`, `CancellationToken` is thread-safe).
+4. **Thread Safety:** All new fields use `Arc` with appropriate synchronization (`TokioMutex` for handle, `AtomicU8` for state, `CancellationToken` is thread-safe).
+
+5. **SOLID Principles:**
+
+   - **Single Responsibility:** `BiDiSession` manages WebSocket and dispatch - keeping them together is reasonable as they're tightly coupled.
+
+   - **Open/Closed:** New methods extend behavior without modifying existing ones.
+
+   - **DRY:** Shared logic extracted to `cleanup_dispatch_task()` and `mark_disconnected()` helpers.
+
+   - **YAGNI:** Removed `is_dispatch_running()`, removed `Stopping` state, simplified error variants.
+
+   - **KISS:** 4-state machine instead of 5, single cancellation token, helper functions reduce duplication.
 
 ## Open Questions
 
-1. Should `dispatch_future()` automatically register the handle when spawned, or should users call a separate `register_dispatch_handle()` method?
-   - **Decision:** Provide `spawn_dispatch()` convenience method for automatic registration. Keep `dispatch_future()` for manual control.
+1. Should the timeout for `stop_dispatch()` have a default value?
 
-2. Should the timeout for `stop_dispatch()` have a default value?
    - **Decision:** Require explicit timeout parameter to avoid implicit behavior.
 
-3. Should `stop_dispatch()` and `cancel_dispatch()` return the task's result, or just indicate success/failure?
+
+
+2. Should `stop_dispatch()` and `cancel_dispatch()` return the task's result, or just indicate success/failure?
+
+   - **Decision:** Return `WebDriverResult<()>` - task result is not useful to users, success/failure is what matters.
    - **Decision:** Return `WebDriverResult<()>` - task result is not useful to users, success/failure is what matters.
