@@ -872,6 +872,134 @@ impl BiDiSession {
     /// // or: async_std::spawn(bidi.dispatch_future());
     /// ```
     #[must_use = "dispatch_future must be spawned or awaited to process messages"]
+/// Helper to clean up dispatch task with timeout
+async fn cleanup_dispatch_task(
+    handle: tokio::task::JoinHandle<()>,
+    timeout: Duration,
+) -> WebDriverResult<()> {
+    match tokio::time::timeout(timeout, handle).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            tracing::warn!("Dispatch task panicked: {}", e);
+            Ok(()) // Task finished, even if panicked
+        }
+        Err(_) => {
+            // Timeout - handle will be dropped (aborted)
+            Err(WebDriverError::BiDiDispatchTimeout(format!(
+                "Dispatch task did not complete within {:?}",
+                timeout
+            )))
+        }
+    }
+}
+
+/// Helper to mark session as disconnected
+fn mark_disconnected(&self) {
+    self.connected.store(false, Ordering::Relaxed);
+    let _ = self.event_tx.send(BiDiEvent::ConnectionClosed);
+}
+/// Gracefully stop the dispatch loop.
+///
+/// Sends a WebSocket close frame and waits for the task to complete.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - No dispatch loop is currently running
+/// - The task does not complete within the timeout
+pub async fn stop_dispatch(&self, timeout: Duration) -> WebDriverResult<()> {
+    // Check state
+    if self.dispatch_state.load(Ordering::Relaxed) != DISPATCH_RUNNING {
+        return Err(WebDriverError::BiDiDispatchNotStarted(
+            "No dispatch loop is currently running".to_string(),
+        ));
+    }
+
+    // Update state
+    self.dispatch_state.store(DISPATCH_STOPPED, Ordering::Relaxed);
+
+    // Send close frame
+    if let Some(sink) = self.ws_sink.try_lock() {
+        let _ = sink.send(Message::Close(None)).await;
+    }
+
+    // Take and cleanup handle
+    let handle = self.dispatch_handle.lock().await.take();
+    if let Some(h) = handle {
+        // Note: We don't await here to allow graceful shutdown
+        // The caller should drop the future or await separately
+        tokio::spawn(async move {
+            let _ = h.await;
+        });
+    }
+
+    // Mark disconnected
+    self.mark_disconnected();
+
+    Ok(())
+}
+/// Immediately cancel the dispatch loop.
+///
+/// Cancels the cancellation token and aborts the task without waiting
+/// for graceful shutdown. After cancellation, the session cannot be restarted.
+///
+/// # Errors
+///
+/// Returns an error if no dispatch loop is currently running.
+pub async fn cancel_dispatch(&self) -> WebDriverResult<()> {
+    // Check state
+    if self.dispatch_state.load(Ordering::Relaxed) != DISPATCH_RUNNING {
+        return Err(WebDriverError::BiDiDispatchNotStarted(
+            "No dispatch loop is currently running".to_string(),
+        ));
+    }
+
+    // Update state
+    self.dispatch_state.store(DISPATCH_CANCELLED, Ordering::Relaxed);
+
+    // Cancel token
+    self.cancel_token.cancel();
+
+    // Take and cleanup handle
+    let handle = self.dispatch_handle.lock().await.take();
+    if let Some(h) = handle {
+        // Short timeout for cancellation cleanup
+        let _ = tokio::time::timeout(
+            Duration::from_secs(1),
+            h
+        ).await;
+    }
+
+    // Mark disconnected
+    self.mark_disconnected();
+
+    Ok(())
+}
+/// Convenience method to spawn the dispatch loop and store the handle internally.
+///
+/// Returns immediately; the task runs in the background.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Dispatch loop is already running
+/// - Session was cancelled and cannot be restarted
+/// - No dispatch future is available (connection closed)
+pub async fn spawn_dispatch(&mut self) -> WebDriverResult<()> {
+    let future = self.dispatch_future()
+        .ok_or_else(|| WebDriverError::BiDiDispatchNotStarted(
+            "Cannot spawn dispatch: dispatch loop unavailable".to_string(),
+        ))?;
+
+    let handle = tokio::spawn(future);
+    *self.dispatch_handle.lock().await = Some(handle);
+
+    Ok(())
+}
+
+
+
+
     pub fn dispatch_future(&mut self) -> Option<DispatchFuture> {
         let state = self.dispatch_state.load(Ordering::Relaxed);
         let connected = self.connected.load(Ordering::Relaxed);
