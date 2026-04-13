@@ -585,6 +585,7 @@ pin_project! {
         ctx: DispatchContext,
         #[pin]
         span: tracing::Span,
+        cancel_token: CancellationToken,
     }
 }
 
