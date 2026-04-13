@@ -130,33 +130,61 @@ Note: `AlreadyStopped` and `RestartFailed` cases can be handled with `BiDiDispat
 
 ### Graceful Shutdown Flow
 
-1. Check current state: if not `Running`, return error
-2. Transition state to `Stopping`
+1. Check current state: if not `Running`, return `BiDiDispatchNotStarted` error
+2. Transition state to `Stopped`
 3. Send WebSocket close frame via `ws_sink.lock().await.send(Message::Close(None)).await`
 4. Take the `JoinHandle` from `dispatch_handle` (set to `None`)
-5. `tokio::time::timeout(timeout, handle).await` - wait for task to complete
-   - On timeout, force-kill with `handle.abort()`
-6. Transition state to `Stopped`
-7. Update `connected` flag to `false`
+5. Call helper `cleanup_dispatch_task(handle, timeout)`:
+   - `tokio::time::timeout(timeout, handle).await` - wait for task to complete
+   - On timeout, force-kill with `handle.abort()`, return `BiDiDispatchTimeout` error
+   - On success, return `Ok(())`
+6. Update `connected` flag to `false` via helper
 
 ### Immediate Cancellation Flow
 
-1. Check current state: if not `Running`, return error
-2. Call `cancel_token.cancel()`
-3. Take the `JoinHandle` from `dispatch_handle` (set to `None`)
-4. `handle.await` - task should exit quickly due to cancelled token
-5. Transition state to `Cancelled`
-6. Update `connected` flag to `false`
+1. Check current state: if not `Running`, return `BiDiDispatchNotStarted` error
+2. Transition state to `Cancelled`
+3. Call `cancel_token.cancel()`
+4. Take the `JoinHandle` from `dispatch_handle` (set to `None`)
+5. Call helper `cleanup_dispatch_task(handle, Duration::from_secs(1))`:
+   - `handle.await` - task should exit quickly due to cancelled token
+   - Short timeout (1s) to ensure cleanup doesn't hang
+6. Update `connected` flag to `false` via helper
 
 ### Restart Flow (via `dispatch_future()` after stop)
 
 1. Check current state:
    - If `Idle` or `Stopped` and `connected == true`: allow restart
-   - If `Running`: return error (already running)
+   - If `Running`: return `None` (already running, user should stop first)
    - If `Cancelled`: return `None` (cannot restart after cancellation)
-2. Create new child token from parent
-3. Transition state to `Running`
-4. Return `DispatchFuture` with the child token
+2. Transition state to `Running`
+3. Return `DispatchFuture` with `cancel_token` cloned
+
+### Helper Functions (DRY - Shared Logic)
+
+```rust
+async fn cleanup_dispatch_task(
+    handle: JoinHandle<()>,
+    timeout: Duration,
+) -> WebDriverResult<()> {
+    match tokio::time::timeout(timeout, handle).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            tracing::warn!("Dispatch task panicked: {}", e);
+            Ok(()) // Task finished, even if panicked
+        }
+        Err(_) => {
+            handle.abort();
+            Err(WebDriverError::BiDiDispatchTimeout)
+        }
+    }
+}
+
+fn mark_disconnected(&self) {
+    self.connected.store(false, Ordering::Relaxed);
+    let _ = self.event_tx.send(BiDiEvent::ConnectionClosed);
+}
+```
 
 ### DispatchFuture Polling Changes
 
