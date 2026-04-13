@@ -138,6 +138,12 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+/// Dispatch state constants for AtomicU8 tracking
+const DISPATCH_IDLE: u8 = 0;
+const DISPATCH_RUNNING: u8 = 1;
+const DISPATCH_STOPPED: u8 = 2;
+const DISPATCH_CANCELLED: u8 = 3;
+
 use futures_util::{SinkExt, StreamExt};
 use pin_project_lite::pin_project;
 use serde_json::{json, Value};
