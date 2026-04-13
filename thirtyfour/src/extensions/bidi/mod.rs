@@ -865,6 +865,22 @@ impl BiDiSession {
     /// ```
     #[must_use = "dispatch_future must be spawned or awaited to process messages"]
     pub fn dispatch_future(&mut self) -> Option<DispatchFuture> {
+        let state = self.dispatch_state.load(Ordering::Relaxed);
+        let connected = self.connected.load(Ordering::Relaxed);
+
+        // Check if restart is allowed
+        match state {
+            DISPATCH_RUNNING => return None, // Already running
+            DISPATCH_CANCELLED => return None, // Cannot restart after cancellation
+            DISPATCH_IDLE | DISPATCH_STOPPED => {
+                // Allow restart only if connected
+                if !connected {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+
         let stream = self.ws_stream.take()?;
         let ctx = DispatchContext {
             pending: Arc::clone(&self.pending),
@@ -877,10 +893,14 @@ impl BiDiSession {
         };
         let span = tracing::debug_span!("bidi_dispatch");
 
+        // Update state to running
+        self.dispatch_state.store(DISPATCH_RUNNING, Ordering::Relaxed);
+
         Some(DispatchFuture {
             stream,
             ctx,
             span,
+            cancel_token: self.cancel_token.clone(),
         })
     }
 
