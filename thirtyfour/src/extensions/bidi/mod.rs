@@ -595,6 +595,14 @@ impl Future for DispatchFuture {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         let _entered = this.span.enter();
+        // Check for cancellation
+        if this.cancel_token.is_cancelled() {
+            this.ctx.connected.store(false, Ordering::Relaxed);
+            let _ = this.ctx.event_tx.send(BiDiEvent::ConnectionClosed);
+            tracing::debug!("BiDi dispatch cancelled");
+            return Poll::Ready(());
+        }
+
 
         loop {
             match futures_util::StreamExt::poll_next_unpin(this.stream, cx) {
