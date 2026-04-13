@@ -133,7 +133,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -149,6 +149,7 @@ use pin_project_lite::pin_project;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, oneshot, Mutex as TokioMutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_util::sync::CancellationToken;
 
 use crate::error::{WebDriverError, WebDriverResult};
 
@@ -704,14 +705,29 @@ pub struct BiDiSession {
     log_tx: Arc<OnceLock<broadcast::Sender<log::LogEvent>>>,
     browsing_context_tx: Arc<OnceLock<broadcast::Sender<BrowsingContextEvent>>>,
     script_tx: Arc<OnceLock<broadcast::Sender<ScriptEvent>>>,
+
+    /// Dispatch task handle (for stop/cancel operations).
+    dispatch_handle: Arc<TokioMutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Dispatch state: 0=Idle, 1=Running, 2=Stopped, 3=Cancelled.
+    dispatch_state: Arc<AtomicU8>,
+    /// Cancellation token for immediate cancellation.
+    cancel_token: CancellationToken,
 }
 
 impl std::fmt::Debug for BiDiSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = match self.dispatch_state.load(Ordering::Relaxed) {
+            DISPATCH_IDLE => "Idle",
+            DISPATCH_RUNNING => "Running",
+            DISPATCH_STOPPED => "Stopped",
+            DISPATCH_CANCELLED => "Cancelled",
+            _ => "Unknown",
+        };
         f.debug_struct("BiDiSession")
             .field("connected", &self.connected.load(Ordering::Relaxed))
             .field("command_timeout", &self.command_timeout)
             .field("dispatch_started", &self.ws_stream.is_none())
+            .field("dispatch_state", &state)
             .finish_non_exhaustive()
     }
 }
@@ -787,6 +803,9 @@ impl BiDiSession {
             log_tx,
             browsing_context_tx,
             script_tx,
+            dispatch_handle: Arc::new(TokioMutex::new(None)),
+            dispatch_state: Arc::new(AtomicU8::new(DISPATCH_IDLE)),
+            cancel_token: CancellationToken::new(),
         })
     }
 
