@@ -24,23 +24,21 @@ This design addresses three use cases:
 
 ### State Management
 
-**DispatchState Enum:**
+**DispatchState Enum (simplified):**
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DispatchState {
     Idle,      // No dispatch loop started
     Running,   // Dispatch loop is active
-    Stopping,  // Graceful shutdown in progress
-    Stopped,   // Graceful shutdown completed (restartable if connected)
-    Cancelled, // Immediate cancellation (not restartable)
+    Stopped,   // Dispatch loop stopped gracefully (restartable if connected)
+    Cancelled, // Dispatch loop cancelled immediately (not restartable)
 }
 ```
 
 **New Fields:**
 - `dispatch_handle: Arc<TokioMutex<Option<JoinHandle<()>>>>` - Stores spawned task handle
-- `dispatch_state: Arc<AtomicCell<DispatchState>>` - Tracks current state
-- `cancel_token: CancellationToken` - Parent token for immediate cancellation
-- `cancel_token_child: Option<CancellationToken>` - Child token for current DispatchFuture
+- `dispatch_state: Arc<AtomicU8>` - Tracks current state (using atomic u8 to avoid extra dependencies)
+- `cancel_token: CancellationToken` - Single token for cancellation capability
 
 ### Key Behaviors
 
@@ -78,13 +76,7 @@ pub async fn cancel_dispatch(&self) -> WebDriverResult<()>
 **Errors:**
 - `BiDiDispatchNotStarted` - No dispatch loop is currently running
 
-#### `is_dispatch_running()`
 
-Returns `true` if a dispatch loop is currently running.
-
-```rust
-pub fn is_dispatch_running(&self) -> bool
-```
 
 ### Optional Convenience Method
 
@@ -128,11 +120,11 @@ pub struct DispatchFuture {
 
 Add to `WebDriverError`:
 ```rust
-BiDiDispatchNotStarted,    // No dispatch loop running
-BiDiDispatchAlreadyStopped,// Already stopped or cancelled
-BiDiDispatchTimeout,       // Graceful shutdown timed out
-BiDiDispatchRestartFailed, // Restart attempted after cancellation
+BiDiDispatchNotStarted, // No dispatch loop running
+BiDiDispatchTimeout,    // Graceful shutdown timed out
 ```
+
+Note: `AlreadyStopped` and `RestartFailed` cases can be handled with `BiDiDispatchNotStarted` for simplicity.
 
 ## Data Flow
 
