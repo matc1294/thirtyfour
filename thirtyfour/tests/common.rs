@@ -7,10 +7,12 @@ use std::{
 };
 
 use rstest::fixture;
+use thirtyfour::prelude::*;
+use thirtyfour::support::block_on;
+#[cfg(feature = "selenium-manager")]
 use thirtyfour::{
-    prelude::*, start_webdriver_process_full, WebDriverProcessBrowser, WebDriverProcessPort,
+    start_webdriver_process_full, ChromeCapabilities, WebDriverProcessBrowser, WebDriverProcessPort,
 };
-use thirtyfour::{support::block_on, ChromeCapabilities};
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 static SERVER: OnceLock<Arc<JoinHandle<()>>> = OnceLock::new();
@@ -157,12 +159,18 @@ pub fn test_harness() -> TestHarness {
     let browser = std::env::var("THIRTYFOUR_BROWSER").unwrap_or_else(|_| "chrome".to_string());
     let port = webdriver_port(&browser);
     init_logging();
+    #[cfg(feature = "selenium-manager")]
     start_webdriver_process_full(
         WebDriverProcessPort::Port(port),
         WebDriverProcessBrowser::<ChromeCapabilities>::Name(browser.clone()),
         true,
     )
     .expect("Working startup.");
+    #[cfg(not(feature = "selenium-manager"))]
+    {
+        let _ = port;
+        // Without the selenium-manager feature, assume a webdriver is already running.
+    }
     block_on(TestHarness::new(&browser))
 }
 
