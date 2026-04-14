@@ -37,7 +37,6 @@ component = ["thirtyfour-macros"]
 debug_sync_quit = []
 bidi = ["dep:tokio-tungstenite", "dep:rustls", "dep:pin-project-lite"]
 
-
 [dependencies]
 async-trait = "0.1.89"
 base64 = "0.22"
