@@ -79,6 +79,27 @@
 //!     .await?;
 //! ```
 //!
+//! # Stopping and Canceling the Dispatch Loop
+//!
+//! When you need to stop the BiDi dispatch loop, use `stop_dispatch()` for graceful shutdown
+//! or `cancel_dispatch()` for immediate termination:
+//!
+//! ```ignore
+//! // Graceful shutdown - sends WebSocket close frame, waits for completion
+//! bidi.stop_dispatch(Duration::from_secs(5)).await?;
+//! assert!(!bidi.is_connected());
+//!
+//! // Immediate cancellation - aborts without waiting (session cannot restart)
+//! bidi.cancel_dispatch().await?;
+//! ```
+//!
+//! ## State Transitions
+//!
+//! | Method | From State | To State | Notes |
+//! |--------|------------|----------|-------|
+//! | `stop_dispatch()` | Running | Stopped | Can restart if still connected |
+//! | `cancel_dispatch()` | Running | Cancelled | Cannot restart (session dead) |
+//!
 //! # Event Subscription Patterns
 //!
 //! ## 1. Unified Channel (All Events)
@@ -880,11 +901,25 @@ impl BiDiSession {
     ///
     /// Sends a WebSocket close frame and waits for the task to complete.
     ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Stop gracefully with 5 second timeout
+    /// bidi.stop_dispatch(Duration::from_secs(5)).await?;
+    ///
+    /// // After stopping, is_connected() returns false
+    /// assert!(!bidi.is_connected());
+    /// ```
+    ///
+    /// # State Transitions
+    ///
+    /// - `Running` → `Stopped`: Successfully stops the dispatch loop
+    ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - No dispatch loop is currently running
-    /// - The task does not complete within the timeout
+    /// - No dispatch loop is currently running (state != Running)
+    /// - The timeout elapses before the task completes
     pub async fn stop_dispatch(&self, _timeout: Duration) -> WebDriverResult<()> {
         // Check state
         if self.dispatch_state.load(Ordering::Relaxed) != DISPATCH_RUNNING {
@@ -921,9 +956,23 @@ impl BiDiSession {
     /// Cancels the cancellation token and aborts the task without waiting
     /// for graceful shutdown. After cancellation, the session cannot be restarted.
     ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Cancel immediately (no timeout needed)
+    /// bidi.cancel_dispatch().await?;
+    ///
+    /// // Session is now disconnected and cannot restart
+    /// assert!(!bidi.is_connected());
+    /// ```
+    ///
+    /// # State Transitions
+    ///
+    /// - `Running` → `Cancelled`: Immediately aborts the dispatch loop
+    ///
     /// # Errors
     ///
-    /// Returns an error if no dispatch loop is currently running.
+    /// Returns an error if no dispatch loop is currently running (state != Running).
     pub async fn cancel_dispatch(&self) -> WebDriverResult<()> {
         // Check state
         if self.dispatch_state.load(Ordering::Relaxed) != DISPATCH_RUNNING {
