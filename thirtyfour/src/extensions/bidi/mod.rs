@@ -409,16 +409,17 @@ impl BiDiSessionBuilder {
     ///
     /// Returns an error if the URL does not start with `ws://` or `wss://`,
     /// or if the host portion is empty.
+    #[allow(clippy::double_must_use)]
     pub fn url_base<U>(mut self, url: U) -> WebDriverResult<Self>
     where
         U: Into<String>,
     {
         let url = url.into();
         let url_str = url.as_str();
-        let after_scheme = if url_str.starts_with("ws://") {
-            &url_str[5..] // Skip "ws://"
-        } else if url_str.starts_with("wss://") {
-            &url_str[6..] // Skip "wss://"
+        let after_scheme = if let Some(stripped) = url_str.strip_prefix("ws://") {
+            stripped
+        } else if let Some(stripped) = url_str.strip_prefix("wss://") {
+            stripped
         } else {
             return Err(WebDriverError::InvalidArgument(crate::error::WebDriverErrorInfo::new(
                 "BiDi URL base must start with 'ws://' or 'wss://'".to_string(),
