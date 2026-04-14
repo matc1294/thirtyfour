@@ -287,6 +287,13 @@ webdriver_err! {
         SessionCreateError(String),
         #[error("BiDi error: {0}")]
         BiDi(String),
+        #[error("BiDi dispatch not started: {0}")]
+        BiDiDispatchNotStarted(String),
+        #[error("BiDi dispatch timeout: {0}")]
+        BiDiDispatchTimeout(String),
+        #[error("BiDi dispatch already running: {0}")]
+        BiDiDispatchAlreadyRunning(String),
+
     }
 }
 

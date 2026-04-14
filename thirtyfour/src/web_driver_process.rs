@@ -67,7 +67,7 @@ impl WebDriverProcess {
         // Determine the browser name from the provided enum.
         let browser_name = match web_driver_process_browser {
             WebDriverProcessBrowser::Caps(capabilities) => capabilities
-                ._get("browserName")
+                .get_value("browserName")
                 .ok_or(WebDriverError::ParseError(
                     "browserName not found in capabilities".to_string(),
                 ))?

@@ -35,8 +35,8 @@ native-tls = ["reqwest/native-tls"]
 tokio-multi-threaded = ["tokio/rt-multi-thread"]
 component = ["thirtyfour-macros"]
 debug_sync_quit = []
-bidi = ["dep:tokio-tungstenite", "dep:rustls", "dep:pin-project-lite"]
-
+bidi = ["dep:tokio-tungstenite", "dep:rustls", "dep:pin-project-lite", "dep:tokio-util"]
+selenium-manager = ["dep:selenium-manager", "dep:libc"]
 
 [dependencies]
 async-trait = "0.1.89"
@@ -67,11 +67,14 @@ const_format = "0.2.35"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true }
 pin-project-lite = { version = "0.2", optional = true }
+selenium-manager = { path = "../selenium/rust", optional = true }
+libc = { version = "0.2", optional = true }
 
 # Optional HTTP client. Not needed if you supply your own.
 reqwest = { version = "0.13.2", default-features = false, features = [
     "json"
 ], optional = true }
+tokio-util = { version = "0.7.18", optional = true }
 
 [dev-dependencies]
 assert_matches = "1.5"

@@ -79,6 +79,27 @@
 //!     .await?;
 //! ```
 //!
+//! # Stopping and Canceling the Dispatch Loop
+//!
+//! When you need to stop the BiDi dispatch loop, use `stop_dispatch()` for graceful shutdown
+//! or `cancel_dispatch()` for immediate termination:
+//!
+//! ```ignore
+//! // Graceful shutdown - sends WebSocket close frame, waits for completion
+//! bidi.stop_dispatch(Duration::from_secs(5)).await?;
+//! assert!(!bidi.is_connected());
+//!
+//! // Immediate cancellation - aborts without waiting (session cannot restart)
+//! bidi.cancel_dispatch().await?;
+//! ```
+//!
+//! ## State Transitions
+//!
+//! | Method | From State | To State | Notes |
+//! |--------|------------|----------|-------|
+//! | `stop_dispatch()` | Running | Stopped | Stream consumed; new WebSocket needed to restart |
+//! | `cancel_dispatch()` | Running | Cancelled | Cannot restart (session dead) |
+//!
 //! # Event Subscription Patterns
 //!
 //! ## 1. Unified Channel (All Events)
@@ -133,16 +154,23 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+/// Dispatch state constants for AtomicU8 tracking
+const DISPATCH_IDLE: u8 = 0;
+const DISPATCH_RUNNING: u8 = 1;
+const DISPATCH_STOPPED: u8 = 2;
+const DISPATCH_CANCELLED: u8 = 3;
 
 use futures_util::{SinkExt, StreamExt};
 use pin_project_lite::pin_project;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, oneshot, Mutex as TokioMutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_util::sync::CancellationToken;
 
 use crate::error::{WebDriverError, WebDriverResult};
 
@@ -402,16 +430,17 @@ impl BiDiSessionBuilder {
     ///
     /// Returns an error if the URL does not start with `ws://` or `wss://`,
     /// or if the host portion is empty.
+    #[allow(clippy::double_must_use)]
     pub fn url_base<U>(mut self, url: U) -> WebDriverResult<Self>
     where
         U: Into<String>,
     {
         let url = url.into();
         let url_str = url.as_str();
-        let after_scheme = if url_str.starts_with("ws://") {
-            &url_str[5..] // Skip "ws://"
-        } else if url_str.starts_with("wss://") {
-            &url_str[6..] // Skip "wss://"
+        let after_scheme = if let Some(stripped) = url_str.strip_prefix("ws://") {
+            stripped
+        } else if let Some(stripped) = url_str.strip_prefix("wss://") {
+            stripped
         } else {
             return Err(WebDriverError::InvalidArgument(crate::error::WebDriverErrorInfo::new(
                 "BiDi URL base must start with 'ws://' or 'wss://'".to_string(),
@@ -578,6 +607,7 @@ pin_project! {
         ctx: DispatchContext,
         #[pin]
         span: tracing::Span,
+        cancel_token: CancellationToken,
     }
 }
 
@@ -587,8 +617,24 @@ impl Future for DispatchFuture {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         let _entered = this.span.enter();
+        // Check for cancellation
+        if this.cancel_token.is_cancelled() {
+            this.ctx.connected.store(false, Ordering::Relaxed);
+            let _ = this.ctx.event_tx.send(BiDiEvent::ConnectionClosed);
+            tracing::debug!("BiDi dispatch cancelled");
+            return Poll::Ready(());
+        }
 
         loop {
+            // Check cancellation on every iteration so a burst of messages
+            // doesn't delay responding to cancel_dispatch().
+            if this.cancel_token.is_cancelled() {
+                this.ctx.connected.store(false, Ordering::Relaxed);
+                let _ = this.ctx.event_tx.send(BiDiEvent::ConnectionClosed);
+                tracing::debug!("BiDi dispatch cancelled");
+                return Poll::Ready(());
+            }
+
             match futures_util::StreamExt::poll_next_unpin(this.stream, cx) {
                 Poll::Ready(Some(msg)) => {
                     let text = match msg {
@@ -698,14 +744,29 @@ pub struct BiDiSession {
     log_tx: Arc<OnceLock<broadcast::Sender<log::LogEvent>>>,
     browsing_context_tx: Arc<OnceLock<broadcast::Sender<BrowsingContextEvent>>>,
     script_tx: Arc<OnceLock<broadcast::Sender<ScriptEvent>>>,
+
+    /// Dispatch task handle (for stop/cancel operations).
+    dispatch_handle: Arc<TokioMutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Dispatch state: 0=Idle, 1=Running, 2=Stopped, 3=Cancelled.
+    dispatch_state: Arc<AtomicU8>,
+    /// Cancellation token for immediate cancellation.
+    cancel_token: CancellationToken,
 }
 
 impl std::fmt::Debug for BiDiSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = match self.dispatch_state.load(Ordering::Relaxed) {
+            DISPATCH_IDLE => "Idle",
+            DISPATCH_RUNNING => "Running",
+            DISPATCH_STOPPED => "Stopped",
+            DISPATCH_CANCELLED => "Cancelled",
+            _ => "Unknown",
+        };
         f.debug_struct("BiDiSession")
             .field("connected", &self.connected.load(Ordering::Relaxed))
             .field("command_timeout", &self.command_timeout)
             .field("dispatch_started", &self.ws_stream.is_none())
+            .field("dispatch_state", &state)
             .finish_non_exhaustive()
     }
 }
@@ -781,6 +842,9 @@ impl BiDiSession {
             log_tx,
             browsing_context_tx,
             script_tx,
+            dispatch_handle: Arc::new(TokioMutex::new(None)),
+            dispatch_state: Arc::new(AtomicU8::new(DISPATCH_IDLE)),
+            cancel_token: CancellationToken::new(),
         })
     }
 
@@ -837,8 +901,209 @@ impl BiDiSession {
     /// tokio::spawn(bidi.dispatch_future());
     /// // or: async_std::spawn(bidi.dispatch_future());
     /// ```
+    /// Helper to mark session as disconnected
+    fn mark_disconnected(&self) {
+        self.connected.store(false, Ordering::Relaxed);
+        let _ = self.event_tx.send(BiDiEvent::ConnectionClosed);
+    }
+    /// Gracefully stop the dispatch loop.
+    ///
+    /// Sends a WebSocket close frame and waits for the task to complete within
+    /// the specified timeout.
+    ///
+    /// **Note:** This method only awaits a handle if the dispatch loop was started
+    /// via [`spawn_dispatch`](Self::spawn_dispatch). If you started the loop by
+    /// calling [`dispatch_future`](Self::dispatch_future) and spawning it yourself,
+    /// the stop still sends the close frame and updates state, but cannot await
+    /// your externally-held task handle.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Stop gracefully with 5 second timeout
+    /// bidi.stop_dispatch(Duration::from_secs(5)).await?;
+    ///
+    /// // After stopping, is_connected() returns false
+    /// assert!(!bidi.is_connected());
+    /// ```
+    ///
+    /// # State Transitions
+    ///
+    /// - `Running` → `Stopped`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No dispatch loop is currently running (state != Running)
+    /// - The timeout elapses before the task completes
+    pub async fn stop_dispatch(&self, timeout: Duration) -> WebDriverResult<()> {
+        // Check state
+        if self.dispatch_state.load(Ordering::Acquire) != DISPATCH_RUNNING {
+            return Err(WebDriverError::BiDiDispatchNotStarted(
+                "No dispatch loop is currently running".to_string(),
+            ));
+        }
+
+        // Update state before signalling so the dispatch future stops processing
+        self.dispatch_state.store(DISPATCH_STOPPED, Ordering::Release);
+
+        // Send close frame - use async lock so we don't skip it if another send is in progress
+        {
+            let mut sink = self.ws_sink.lock().await;
+            use tokio_tungstenite::tungstenite::protocol::{frame::coding::CloseCode, CloseFrame};
+            let _ = sink
+                .send(Message::Close(Some(CloseFrame {
+                    code: CloseCode::Normal,
+                    reason: "BiDi session stopped".into(),
+                })))
+                .await;
+        }
+
+        // Await the task handle with timeout
+        let handle = self.dispatch_handle.lock().await.take();
+        if let Some(h) = handle {
+            if tokio::time::timeout(timeout, h).await.is_err() {
+                return Err(WebDriverError::BiDiDispatchTimeout(format!(
+                    "Dispatch task did not complete within {timeout:?}",
+                )));
+            }
+        }
+
+        // Mark disconnected after task has finished
+        self.mark_disconnected();
+
+        Ok(())
+    }
+    /// Immediately cancel the dispatch loop.
+    ///
+    /// Cancels the cancellation token and aborts the task without waiting
+    /// for graceful shutdown. After cancellation, the session cannot be restarted.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Cancel immediately (no timeout needed)
+    /// bidi.cancel_dispatch().await?;
+    ///
+    /// // Session is now disconnected and cannot restart
+    /// assert!(!bidi.is_connected());
+    /// ```
+    ///
+    /// # State Transitions
+    ///
+    /// - `Running` → `Cancelled`: Immediately aborts the dispatch loop
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no dispatch loop is currently running (state != Running).
+    pub async fn cancel_dispatch(&self) -> WebDriverResult<()> {
+        // Check state
+        if self.dispatch_state.load(Ordering::Acquire) != DISPATCH_RUNNING {
+            return Err(WebDriverError::BiDiDispatchNotStarted(
+                "No dispatch loop is currently running".to_string(),
+            ));
+        }
+
+        // Update state
+        self.dispatch_state.store(DISPATCH_CANCELLED, Ordering::Release);
+
+        // Cancel token
+        self.cancel_token.cancel();
+
+        // Take and cleanup handle
+        let handle = self.dispatch_handle.lock().await.take();
+        if let Some(h) = handle {
+            // Short timeout for cancellation cleanup
+            let _ = tokio::time::timeout(Duration::from_secs(1), h).await;
+        }
+
+        // Mark disconnected
+        self.mark_disconnected();
+
+        Ok(())
+    }
+    /// Convenience method to spawn the dispatch loop and store the handle internally.
+    ///
+    /// Returns immediately; the task runs in the background. Use [`stop_dispatch`](Self::stop_dispatch)
+    /// or [`cancel_dispatch`](Self::cancel_dispatch) to stop it later.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Dispatch loop is already running ([`WebDriverError::BiDiDispatchAlreadyRunning`])
+    /// - Session was cancelled and cannot be restarted ([`WebDriverError::BiDiDispatchNotStarted`])
+    /// - No dispatch future is available (connection closed) ([`WebDriverError::BiDiDispatchNotStarted`])
+    pub async fn spawn_dispatch(&mut self) -> WebDriverResult<()> {
+        // Give a clear error when already running, rather than a confusing "not started" message
+        if self.dispatch_state.load(Ordering::Acquire) == DISPATCH_RUNNING {
+            return Err(WebDriverError::BiDiDispatchAlreadyRunning(
+                "Dispatch loop is already running".to_string(),
+            ));
+        }
+
+        let future = self.dispatch_future().ok_or_else(|| {
+            WebDriverError::BiDiDispatchNotStarted(
+                "Cannot spawn dispatch: session cancelled or connection closed".to_string(),
+            )
+        })?;
+
+        let handle = tokio::spawn(future);
+        *self.dispatch_handle.lock().await = Some(handle);
+
+        Ok(())
+    }
+
+    /// Returns a future that processes BiDi messages.
+    ///
+    /// The returned `DispatchFuture` must be spawned using `tokio::spawn()` or
+    /// awaited directly. While the future is running, it will process incoming
+    /// WebSocket messages and dispatch them to the appropriate event channels.
+    ///
+    /// **Note:** The WebSocket receive stream is consumed when this future is
+    /// created. After calling `stop_dispatch()`, the stream is gone and this
+    /// method will return `None` — a new WebSocket connection is required to
+    /// restart. Use `cancel_dispatch()` for a permanent, non-restartable stop.
+    ///
+    /// **Warning:** If the returned future is dropped without being awaited or
+    /// spawned, the dispatch state is left as `Running`. Call `stop_dispatch()`
+    /// or `cancel_dispatch()` to reset it.
+    ///
+    /// # State Transitions
+    ///
+    /// - `Idle` → `Running`: First call, starts dispatch
+    /// - `Running` → (returns `None`): Already running
+    /// - `Stopped` → (returns `None`): Stream consumed; reconnect required
+    /// - `Cancelled` → (returns `None`): Cannot restart after cancellation
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut bidi = BiDiSessionBuilder::new()
+    ///     .connect_with_driver(&driver)
+    ///     .await?;
+    ///
+    /// // Spawn on your preferred runtime
+    /// tokio::spawn(bidi.dispatch_future().expect("not yet running"));
+    /// ```
     #[must_use = "dispatch_future must be spawned or awaited to process messages"]
     pub fn dispatch_future(&mut self) -> Option<DispatchFuture> {
+        let state = self.dispatch_state.load(Ordering::Acquire);
+        let connected = self.connected.load(Ordering::Acquire);
+
+        // Check if restart is allowed
+        match state {
+            DISPATCH_RUNNING => return None,   // Already running
+            DISPATCH_CANCELLED => return None, // Cannot restart after cancellation
+            DISPATCH_STOPPED => return None,   // Stream consumed; reconnect required
+            DISPATCH_IDLE => {
+                // Allow start only if connected
+                if !connected {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+
         let stream = self.ws_stream.take()?;
         let ctx = DispatchContext {
             pending: Arc::clone(&self.pending),
@@ -851,10 +1116,14 @@ impl BiDiSession {
         };
         let span = tracing::debug_span!("bidi_dispatch");
 
+        // Update state to running (Release so the dispatch task sees prior writes)
+        self.dispatch_state.store(DISPATCH_RUNNING, Ordering::Release);
+
         Some(DispatchFuture {
             stream,
             ctx,
             span,
+            cancel_token: self.cancel_token.clone(),
         })
     }
 
