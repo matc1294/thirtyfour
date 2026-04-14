@@ -35,7 +35,7 @@ native-tls = ["reqwest/native-tls"]
 tokio-multi-threaded = ["tokio/rt-multi-thread"]
 component = ["thirtyfour-macros"]
 debug_sync_quit = []
-bidi = ["dep:tokio-tungstenite", "dep:rustls", "dep:pin-project-lite"]
+bidi = ["dep:tokio-tungstenite", "dep:rustls", "dep:pin-project-lite", "dep:tokio-util"]
 selenium-manager = ["dep:selenium-manager", "dep:libc"]
 
 [dependencies]
@@ -74,7 +74,7 @@ libc = { version = "0.2", optional = true }
 reqwest = { version = "0.13.2", default-features = false, features = [
     "json"
 ], optional = true }
-tokio-util = "0.7.18"
+tokio-util = { version = "0.7.18", optional = true }
 
 [dev-dependencies]
 assert_matches = "1.5"

@@ -22,12 +22,21 @@ async fn setup_bidi(browser: &str) -> WebDriverResult<(WebDriver, BiDiSession)> 
     Ok((driver, bidi))
 }
 
+/// Returns true if a WebDriver is reachable without opening a browser session.
+async fn webdriver_available(browser: &str) -> bool {
+    let port: u16 = match browser {
+        "firefox" => 4444,
+        "chrome" => 9515,
+        _ => return false,
+    };
+    tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok()
+}
+
 #[tokio::test]
 async fn test_stop_dispatch_graceful() {
     let browser = std::env::var("THIRTYFOUR_BROWSER").unwrap_or_else(|_| "chrome".to_string());
 
-    // Skip if WebDriver not available (simplified pattern)
-    if tokio::time::timeout(Duration::from_secs(2), setup_bidi(&browser)).await.is_err() {
+    if !webdriver_available(&browser).await {
         println!("Skipping test: WebDriver not available at localhost");
         return;
     }
@@ -46,7 +55,7 @@ async fn test_stop_dispatch_graceful() {
 async fn test_cancel_dispatch_immediate() {
     let browser = std::env::var("THIRTYFOUR_BROWSER").unwrap_or_else(|_| "chrome".to_string());
 
-    if tokio::time::timeout(Duration::from_secs(2), setup_bidi(&browser)).await.is_err() {
+    if !webdriver_available(&browser).await {
         println!("Skipping test: WebDriver not available at localhost");
         return;
     }
@@ -57,15 +66,17 @@ async fn test_cancel_dispatch_immediate() {
     bidi.cancel_dispatch().await.expect("cancel_dispatch failed");
 
     assert!(!bidi.is_connected(), "Session should be marked as disconnected after cancel");
+    // Verify state is CANCELLED: dispatch_future must return None
+    // (requires mut; session is intentionally single-use after cancel)
 
     driver.quit().await.expect("Failed to quit driver");
 }
 
 #[tokio::test]
-async fn test_restart_after_stop() {
+async fn test_stop_is_final_without_reconnect() {
     let browser = std::env::var("THIRTYFOUR_BROWSER").unwrap_or_else(|_| "chrome".to_string());
 
-    if tokio::time::timeout(Duration::from_secs(2), setup_bidi(&browser)).await.is_err() {
+    if !webdriver_available(&browser).await {
         println!("Skipping test: WebDriver not available at localhost");
         return;
     }
@@ -76,9 +87,8 @@ async fn test_restart_after_stop() {
     bidi.stop_dispatch(Duration::from_secs(2)).await.expect("stop_dispatch failed");
     assert!(!bidi.is_connected());
 
-    // Note: After stopping the dispatch loop via stop_dispatch(), we transition to STOPPED state.
-    // However, restart requires a fresh WebSocket connection since ws_stream is consumed
-    // when creating the dispatch future. This test documents that behavior.
+    // After stopping, the ws_stream has been consumed — restart is not possible
+    // without a new WebSocket connection. This documents the expected behavior.
 
     driver.quit().await.expect("Failed to quit driver");
 }
@@ -87,7 +97,7 @@ async fn test_restart_after_stop() {
 async fn test_double_stop_error() {
     let browser = std::env::var("THIRTYFOUR_BROWSER").unwrap_or_else(|_| "chrome".to_string());
 
-    if tokio::time::timeout(Duration::from_secs(2), setup_bidi(&browser)).await.is_err() {
+    if !webdriver_available(&browser).await {
         println!("Skipping test: WebDriver not available at localhost");
         return;
     }

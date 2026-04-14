@@ -1,3 +1,5 @@
+// Test utilities are used conditionally based on available WebDriver and features;
+// suppress dead-code lints for the whole module.
 #![allow(dead_code)]
 
 use std::{

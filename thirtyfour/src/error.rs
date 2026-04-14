@@ -291,6 +291,8 @@ webdriver_err! {
         BiDiDispatchNotStarted(String),
         #[error("BiDi dispatch timeout: {0}")]
         BiDiDispatchTimeout(String),
+        #[error("BiDi dispatch already running: {0}")]
+        BiDiDispatchAlreadyRunning(String),
 
     }
 }
