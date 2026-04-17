@@ -84,10 +84,9 @@ impl HttpClient for reqwest::Client {
         }
 
         let body = resp.bytes().await?;
-        let body_str = String::from_utf8_lossy(&body).into_owned();
-        let resp = builder
-            .body(body)
-            .map_err(|_| WebDriverError::UnknownResponse(status.as_u16(), body_str))?;
+        let resp = builder.body(body).map_err(|e| {
+            WebDriverError::RequestFailed(format!("Failed to build response: {e}"))
+        })?;
         Ok(resp)
     }
 
@@ -216,17 +215,23 @@ pub(crate) async fn run_webdriver_cmd(
         .map_err(|e| WebDriverError::RequestFailed(format!("invalid request body: {e}")))?;
     let response = client.send(request).await?;
     let status = response.status().as_u16();
-    let lossy_response = String::from_utf8_lossy(response.body());
-    tracing::debug!("webdriver response: {status} {lossy_response}");
     match status {
         200..=399 => match serde_json::from_slice(response.body()) {
-            Ok(v) => Ok(CmdResponse {
-                body: v,
-                status,
-            }),
-            Err(_) => Err(WebDriverError::parse(status, lossy_response.into_owned())),
+            Ok(v) => {
+                tracing::debug!("webdriver response: {status} <ok>");
+                Ok(CmdResponse { body: v, status })
+            }
+            Err(_) => {
+                let lossy = String::from_utf8_lossy(response.body()).into_owned();
+                tracing::debug!("webdriver response: {status} {lossy}");
+                Err(WebDriverError::parse(status, lossy))
+            }
         },
-        _ => Err(WebDriverError::parse(status, lossy_response.into_owned())),
+        _ => {
+            let lossy = String::from_utf8_lossy(response.body()).into_owned();
+            tracing::debug!("webdriver response: {status} {lossy}");
+            Err(WebDriverError::parse(status, lossy))
+        }
     }
 }
 
