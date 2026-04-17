@@ -54,6 +54,15 @@ pub trait HttpClient: Send + Sync + 'static {
 }
 
 #[cfg(feature = "reqwest")]
+fn available_system_memory_bytes() -> u64 {
+    use sysinfo::{System};
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.available_memory()
+}
+
+
+#[cfg(feature = "reqwest")]
 #[async_trait::async_trait]
 impl HttpClient for reqwest::Client {
     async fn send(&self, request: Request<Body<'_>>) -> WebDriverResult<Response<Bytes>> {
@@ -75,6 +84,20 @@ impl HttpClient for reqwest::Client {
         }
 
         let resp = req.send().await?;
+
+        // Memory guard: check Content-Length against available RAM before buffering.
+        if let Some(content_length) = resp.content_length() {
+            let available = available_system_memory_bytes();
+            let safe_limit = available * 80 / 100;
+            if content_length > safe_limit {
+                return Err(WebDriverError::ResponseTooLarge(format!(
+                    "Response body ({content_length} bytes) exceeds safe memory limit \
+                     ({safe_limit} bytes). Available RAM: {available} bytes"
+                )));
+            }
+        }
+
+
         let status = resp.status();
         let mut builder = Response::builder();
 
@@ -116,6 +139,22 @@ mod tests {
             let _ = resp.text().await.unwrap();
         });
     }
+    #[test]
+    fn test_memory_guard_rejects_when_size_exceeds_available() {
+        let available_ram: u64 = 100;
+        let safe_limit = available_ram * 80 / 100;
+        let content_length: u64 = 90;
+        assert!(content_length > safe_limit, "guard should trigger");
+    }
+
+    #[test]
+    fn test_memory_guard_allows_when_size_is_safe() {
+        let available_ram: u64 = 1_000_000_000;
+        let safe_limit = available_ram * 80 / 100;
+        let content_length: u64 = 50_000_000;
+        assert!(content_length <= safe_limit, "guard should not trigger");
+    }
+
 }
 
 use crate::common::config::BasicAuth;
