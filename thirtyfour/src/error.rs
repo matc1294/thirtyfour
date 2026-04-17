@@ -287,6 +287,9 @@ webdriver_err! {
         SessionCreateError(String),
         #[error("BiDi error: {0}")]
         BiDi(String),
+        #[error("Response body too large to process safely: {0}")]
+        ResponseTooLarge(String),
+
         #[error("BiDi dispatch not started: {0}")]
         BiDiDispatchNotStarted(String),
         #[error("BiDi dispatch timeout: {0}")]
@@ -437,4 +440,16 @@ mod tests {
         let err = WebDriverError::BiDi("connection refused".to_string());
         assert!(err.to_string().contains("BiDi error: connection refused"));
     }
+    #[test]
+    fn test_response_too_large_error_message() {
+        let err = WebDriverError::ResponseTooLarge(
+            "Response body (600000000 bytes) exceeds safe memory limit \
+             (500000000 bytes). Available RAM: 625000000 bytes"
+                .to_string(),
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("Response body"), "message should mention response body");
+        assert!(msg.contains("exceeds safe memory limit"), "message should mention limit");
+    }
+
 }
