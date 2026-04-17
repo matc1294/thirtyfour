@@ -1,4 +1,3 @@
-use crate::error::WebDriverError;
 use crate::{
     extensions::query::{ElementPollerWithTimeout, IntoElementPoller},
     prelude::WebDriverResult,
