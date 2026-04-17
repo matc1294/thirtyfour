@@ -183,7 +183,7 @@ pub(crate) async fn run_webdriver_cmd(
         .join(&request_data.uri)
         .map_err(|e| WebDriverError::ParseError(format!("invalid url: {e}")))?;
     let mut builder = http::Request::builder()
-        .method(request_data.method.clone())
+        .method((*request_data.method).clone())
         .uri(uri.as_str())
         .header(ACCEPT, HeaderValue::from_static("application/json"))
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json;charset=UTF-8"))
