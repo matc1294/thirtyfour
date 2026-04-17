@@ -4,7 +4,6 @@ use crate::{
     prelude::WebDriverResult,
 };
 use const_format::formatcp;
-use http::HeaderValue;
 use std::sync::Arc;
 use std::time::Duration;
 

@@ -29,7 +29,7 @@ categories = [
 
 [features]
 default = ["reqwest", "rustls", "component"]
-reqwest = ["dep:reqwest"]
+reqwest = ["dep:reqwest", "dep:sysinfo"]
 rustls = ["reqwest/rustls"]
 native-tls = ["reqwest/native-tls"]
 tokio-multi-threaded = ["tokio/rt-multi-thread"]
@@ -62,7 +62,7 @@ tokio = { version = "1.49", features = [
 ] }
 cfg-if = "1.0.4"
 tracing = "0.1"
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+sysinfo = { version = "0.32", default-features = false, features = ["system"], optional = true }
 url = "2.5.8"
 const_format = "0.2.35"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }

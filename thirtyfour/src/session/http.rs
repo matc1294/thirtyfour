@@ -87,7 +87,9 @@ impl HttpClient for reqwest::Client {
 
         // Memory guard: check Content-Length against available RAM before buffering.
         if let Some(content_length) = resp.content_length() {
-            let available = available_system_memory_bytes();
+            let available = tokio::task::spawn_blocking(available_system_memory_bytes)
+                .await
+                .unwrap_or(u64::MAX);
             let safe_limit = available * 80 / 100;
             if content_length > safe_limit {
                 return Err(WebDriverError::ResponseTooLarge(format!(
