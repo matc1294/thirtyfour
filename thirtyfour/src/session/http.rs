@@ -80,7 +80,7 @@ impl HttpClient for reqwest::Client {
 
         builder = builder.status(status);
         for (key, value) in resp.headers().iter() {
-            builder = builder.header(key.clone(), value.clone());
+            builder = builder.header(key, value);
         }
 
         let body = resp.bytes().await?;
