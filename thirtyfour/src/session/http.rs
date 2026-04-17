@@ -89,7 +89,10 @@ impl HttpClient for reqwest::Client {
         if let Some(content_length) = resp.content_length() {
             let available = tokio::task::spawn_blocking(available_system_memory_bytes)
                 .await
-                .unwrap_or(u64::MAX);
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to query available system memory: {e}; skipping guard");
+                    u64::MAX
+                });
             let safe_limit = available * 80 / 100;
             if content_length > safe_limit {
                 return Err(WebDriverError::ResponseTooLarge(format!(
