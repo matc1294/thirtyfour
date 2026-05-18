@@ -93,7 +93,7 @@ impl SessionHandle {
         }
     }
 
-    /// The session id for this webdriver session.
+    /// Return a reference to the session ID for this WebDriver session.
     pub fn session_id(&self) -> &SessionId {
         &self.session_id
     }
@@ -109,7 +109,6 @@ impl SessionHandle {
         &self.config
     }
 
-    /// Derive the WebSocket URL for BiDi connections from the server URL.
     /// Derive the WebSocket URL for BiDi connections from the server URL.
     /// Uses only the host (and port) portion of the server URL, not any path.
     ///
@@ -1162,7 +1161,9 @@ impl SessionHandle {
         self: &Arc<SessionHandle>,
         window_name: impl Display,
     ) -> WebDriverResult<()> {
-        let script = format!(r#"window.name = "{}""#, window_name);
+        let escaped = serde_json::to_string(&window_name.to_string())
+            .unwrap_or_else(|_| "''".to_string());
+        let script = format!("window.name = {escaped}");
         self.execute(script, Vec::new()).await?;
         Ok(())
     }
@@ -1211,6 +1212,14 @@ impl SessionHandle {
         result
     }
 
+    /// Quit the WebDriver session.
+    ///
+    /// # Cancellation Safety
+    ///
+    /// This method uses `OnceCell` to ensure the quit command is sent at most once.
+    /// If cancelled mid-execution, the state may be left in an inconsistent state
+    /// where the session is not properly closed. For robust shutdown, call
+    /// `quit()` explicitly and avoid cancelling the future.
     pub(crate) async fn quit(&self) -> WebDriverResult<()> {
         self.quit
             .get_or_try_init(|| async { self.cmd(Command::DeleteSession).await.map(drop) })
@@ -1230,6 +1239,8 @@ impl Drop for SessionHandle {
         if self.quit.initialized() {
             return;
         }
+
+        tracing::warn!("WebDriver session dropped without calling quit() - session may leak");
 
         #[cfg(feature = "debug_sync_quit")]
         eprintln!(
