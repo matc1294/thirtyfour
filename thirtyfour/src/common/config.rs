@@ -99,16 +99,6 @@ impl WebDriverConfig {
 
         HEADER
     };
-
-    /// Get the default user agent.
-    #[deprecated(
-        since = "0.34.1",
-        note = "This associated function is now a constant `WebDriverConfig::DEFAULT_USER_AGENT`"
-    )]
-    #[must_use]
-    pub fn default_user_agent() -> &'static str {
-        Self::DEFAULT_USER_AGENT
-    }
 }
 
 /// Builder for `WebDriverConfig`.

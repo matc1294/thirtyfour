@@ -159,7 +159,7 @@
 pub use stringmatch;
 
 // Export types at root level.
-pub use alert::Alert;
+
 pub use common::cookie;
 pub use common::{
     capabilities::{
@@ -178,17 +178,17 @@ pub use common::{
     requestdata::*,
     types::*,
 };
-pub use switch_to::SwitchTo;
+
 pub use web_driver::WebDriver;
 pub use web_element::WebElement;
 
 /// Allow importing the common types via `use thirtyfour::prelude::*`.
 pub mod prelude {
-    pub use crate::alert::Alert;
+
     pub use crate::error::{WebDriverError, WebDriverResult};
     pub use crate::extensions::query::{ElementPoller, ElementQueryable, ElementWaitable};
     pub use crate::session::scriptret::ScriptRet;
-    pub use crate::switch_to::SwitchTo;
+
     pub use crate::WebDriver;
     pub use crate::WebElement;
     pub use crate::{

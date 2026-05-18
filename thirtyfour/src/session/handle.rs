@@ -18,7 +18,7 @@ use crate::prelude::WebDriverError;
 use crate::session::scriptret::ScriptRet;
 use crate::support::base64_decode;
 use crate::web_driver::AlreadyQuit;
-use crate::{support, By, OptionRect, Rect, SessionId, SwitchTo, WebDriverStatus, WebElement};
+use crate::{support, By, OptionRect, Rect, SessionId, WebDriverStatus, WebElement};
 use crate::{IntoArcStr, IntoUrl};
 use crate::{TimeoutConfiguration, WindowHandle};
 
@@ -196,12 +196,6 @@ impl SessionHandle {
         Ok(())
     }
 
-    /// Close the current window or tab. This will close the session if no other windows exist.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to close_window()")]
-    pub async fn close(&self) -> WebDriverResult<()> {
-        self.close_window().await
-    }
-
     /// Navigate to the specified URL.
     ///
     /// # Example:
@@ -252,11 +246,6 @@ impl SessionHandle {
         self.cmd(Command::GetPageSource).await?.value()
     }
 
-    /// Get the page source as a String.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to source()")]
-    pub async fn page_source(&self) -> WebDriverResult<String> {
-        self.source().await
-    }
 
     /// Get the page title as a String.
     pub async fn title(&self) -> WebDriverResult<String> {
@@ -291,12 +280,6 @@ impl SessionHandle {
         r.element(self.clone())
     }
 
-    /// Search for an element on the current page using the specified selector.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to find()")]
-    pub async fn find_element(self: &Arc<Self>, by: By) -> WebDriverResult<WebElement> {
-        self.find(by).await
-    }
-
     /// Search for all elements on the current page that match the specified selector.
     ///
     /// **NOTE**: For more powerful element queries including polling and filters, see the
@@ -325,12 +308,6 @@ impl SessionHandle {
     pub async fn find_all(self: &Arc<Self>, by: By) -> WebDriverResult<Vec<WebElement>> {
         let r = self.cmd(Command::FindElements(by.into())).await?;
         r.elements(self.clone())
-    }
-
-    /// Search for all elements on the current page that match the specified selector.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to find_all()")]
-    pub async fn find_elements(self: &Arc<Self>, by: By) -> WebDriverResult<Vec<WebElement>> {
-        self.find_all(by).await
     }
 
     /// Execute the specified Javascript synchronously and return the result.
@@ -388,16 +365,6 @@ impl SessionHandle {
     ) -> WebDriverResult<ScriptRet> {
         let r = self.cmd(Command::ExecuteScript(script.into(), args.into())).await?;
         Ok(ScriptRet::new(self.clone(), r.value()?))
-    }
-
-    /// Execute the specified Javascript synchronously and return the result.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to execute()")]
-    pub async fn execute_script(
-        self: &Arc<Self>,
-        script: impl IntoArcStr,
-        args: Vec<Value>,
-    ) -> WebDriverResult<ScriptRet> {
-        self.execute(script, args).await
     }
 
     /// Execute the specified JavaScript asynchronously and return the result.
@@ -468,16 +435,6 @@ impl SessionHandle {
         Ok(ScriptRet::new(self.clone(), r.value()?))
     }
 
-    /// Execute the specified JavaScript asynchronously and return the result.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to execute_async()")]
-    pub async fn execute_script_async(
-        self: &Arc<Self>,
-        script: impl IntoArcStr,
-        args: impl Into<Arc<[Value]>>,
-    ) -> WebDriverResult<ScriptRet> {
-        self.execute_async(script, args.into()).await
-    }
-
     /// Get the current window handle.
     ///
     /// # Example:
@@ -516,12 +473,6 @@ impl SessionHandle {
         Ok(WindowHandle::from(r.value::<String>()?))
     }
 
-    /// Get the current window handle.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to window()")]
-    pub async fn current_window_handle(&self) -> WebDriverResult<WindowHandle> {
-        self.window().await
-    }
-
     /// Get all window handles for the current session.
     ///
     /// # Example:
@@ -550,12 +501,6 @@ impl SessionHandle {
         let r = self.cmd(Command::GetWindowHandles).await?;
         let handles: Vec<String> = r.value()?;
         Ok(handles.into_iter().map(WindowHandle::from).collect())
-    }
-
-    /// Get all window handles for the current session.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to windows()")]
-    pub async fn window_handles(&self) -> WebDriverResult<Vec<WindowHandle>> {
-        self.windows().await
     }
 
     /// Maximize the current window.
@@ -810,12 +755,6 @@ impl SessionHandle {
         Ok(())
     }
 
-    /// Set all timeouts for the current session.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to update_timeouts()")]
-    pub async fn set_timeouts(&self, timeouts: TimeoutConfiguration) -> WebDriverResult<()> {
-        self.update_timeouts(timeouts).await
-    }
-
     /// Set the implicit wait timeout.
     ///
     /// This is how long the WebDriver will wait when querying elements.
@@ -979,12 +918,6 @@ impl SessionHandle {
         self.cmd(Command::GetAllCookies).await?.value()
     }
 
-    /// Get all cookies.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to get_all_cookies()")]
-    pub async fn get_cookies(&self) -> WebDriverResult<Vec<Cookie>> {
-        self.get_all_cookies().await
-    }
-
     /// Get the specified cookie.
     ///
     /// # Example:
@@ -1005,12 +938,6 @@ impl SessionHandle {
     /// ```
     pub async fn get_named_cookie(&self, name: impl IntoArcStr) -> WebDriverResult<Cookie> {
         self.cmd(Command::GetNamedCookie(name.into())).await?.value()
-    }
-
-    /// Get the specified cookie.
-    #[deprecated(since = "0.30.0", note = "This method has been renamed to get_named_cookie()")]
-    pub async fn get_cookie(&self, name: impl IntoArcStr) -> WebDriverResult<Cookie> {
-        self.get_named_cookie(name).await
     }
 
     /// Delete the specified cookie.
@@ -1109,15 +1036,6 @@ impl SessionHandle {
         let png = self.screenshot_as_png().await?;
         support::write_file(path, png).await?;
         Ok(())
-    }
-
-    /// Return a SwitchTo struct for switching to another window or frame.
-    #[deprecated(
-        since = "0.30.0",
-        note = "SwitchTo has been deprecated. Use WebDriver::switch_to_*() methods instead"
-    )]
-    pub fn switch_to(self: &Arc<SessionHandle>) -> SwitchTo {
-        SwitchTo::new(self.clone())
     }
 
     /// Set the current window name.
