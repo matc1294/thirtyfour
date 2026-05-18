@@ -189,6 +189,12 @@ pub use storage::Storage;
 pub use webextension::WebExtension;
 
 /// Type alias for the pending commands map.
+///
+/// Uses `std::sync::Mutex` rather than `tokio::sync::Mutex` because the critical
+/// sections (insert/remove from a `HashMap`) are trivial and **never held across
+/// `.await` points** — each lock acquisition is wrapped in a scoped block that
+/// drops the guard before any async work. This avoids the overhead of an async
+/// mutex for CPU-bound operations that complete in microseconds.
 type PendingCommands = Arc<StdMutex<HashMap<u64, oneshot::Sender<WebDriverResult<Value>>>>>;
 
 /// Context for the dispatch task, grouping shared state.

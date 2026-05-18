@@ -237,6 +237,34 @@ macro_rules! disallow_empty {
     };
 }
 
+//
+// Helper macros for reducing boilerplate in ElementQuery filter methods
+//
+
+/// Macro to generate methods that match elements with a specific property.
+macro_rules! define_boolean_filter {
+    ($method:ident, $condition:ident) => {
+        /// Only match elements that satisfy the specified condition.
+        pub fn $method(self) -> Self {
+            let ignore_errors = self.options.ignore_errors.unwrap_or_default();
+            self.with_filter(conditions::$condition(ignore_errors))
+        }
+    };
+}
+
+/// Macro to generate with_X/without_X method pairs for element properties.
+macro_rules! define_property_filter {
+    ($with_method:ident, $without_method:ident, $condition_has:ident, $condition_lacks:ident) => {
+        define_boolean_filter!($with_method, $condition_has);
+
+        /// Only match elements that do NOT satisfy the specified condition.
+        pub fn $without_method(self) -> Self {
+            let ignore_errors = self.options.ignore_errors.unwrap_or_default();
+            self.with_filter(conditions::$condition_lacks(ignore_errors))
+        }
+    };
+}
+
 impl ElementQuery {
     /// Create a new `ElementQuery`.
     ///
@@ -538,53 +566,11 @@ impl ElementQuery {
     // Advance selectors
     //
 
-    /// Only match elements that are enabled.
-    pub fn and_enabled(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_enabled(ignore_errors))
-    }
-
-    /// Only match elements that are NOT enabled.
-    pub fn and_not_enabled(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_not_enabled(ignore_errors))
-    }
-
-    /// Only match elements that are selected.
-    pub fn and_selected(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_selected(ignore_errors))
-    }
-
-    /// Only match elements that are NOT selected.
-    pub fn and_not_selected(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_not_selected(ignore_errors))
-    }
-
-    /// Only match elements that are displayed.
-    pub fn and_displayed(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_displayed(ignore_errors))
-    }
-
-    /// Only match elements that are NOT displayed.
-    pub fn and_not_displayed(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_not_displayed(ignore_errors))
-    }
-
-    /// Only match elements that are clickable.
-    pub fn and_clickable(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_clickable(ignore_errors))
-    }
-
-    /// Only match elements that are NOT clickable.
-    pub fn and_not_clickable(self) -> Self {
-        let ignore_errors = self.options.ignore_errors.unwrap_or_default();
-        self.with_filter(conditions::element_is_not_clickable(ignore_errors))
-    }
+    // Apply macros to generate boolean filter methods
+    define_property_filter!(and_enabled, and_not_enabled, element_is_enabled, element_is_not_enabled);
+    define_property_filter!(and_selected, and_not_selected, element_is_selected, element_is_not_selected);
+    define_property_filter!(and_displayed, and_not_displayed, element_is_displayed, element_is_not_displayed);
+    define_property_filter!(and_clickable, and_not_clickable, element_is_clickable, element_is_not_clickable);
 
     //
     // By alternative helper selectors

@@ -90,7 +90,7 @@ impl WebDriverProcess {
                 Err(err) => {
                     if selenium_manager.is_fallback_driver_from_cache() && allow_offline {
                         if let Some(best_driver_from_cache) =
-                            selenium_manager.find_best_driver_from_cache().unwrap()
+                            selenium_manager.find_best_driver_from_cache().ok().flatten()
                         {
                             Ok(best_driver_from_cache)
                         } else {
@@ -159,6 +159,16 @@ where
     C: CapabilitiesHelper,
 {
     match WEB_DRIVER_PROCESS.get_or_init(|| {
+        // SAFETY:
+        // - `on_exit_handler` is an `extern "C"` function with signature `fn()`, matching
+        //   the contract required by C's `atexit()`.
+        // - The function pointer is valid for the entire program lifetime (it is a static
+        //   Rust function, not a closure or dynamically-generated pointer).
+        // - `on_exit_handler` does not call `panic!` or `unwrap`; it writes errors to
+        //   stderr and returns, which is safe during program shutdown.
+        // - The only mutable global state accessed is `WEB_DRIVER_PROCESS`, which is a
+        //   `OnceLock` that was initialized before `atexit` was registered, so it is safe
+        //   to read during shutdown.
         if unsafe { atexit(on_exit_handler) } != 0 {
             return Err(WebDriverError::FatalError(
                 "Unable to register atexit handler.".to_string(),
