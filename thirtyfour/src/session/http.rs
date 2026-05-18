@@ -61,6 +61,33 @@ fn available_system_memory_bytes() -> u64 {
     sys.available_memory()
 }
 
+/// Cache for available system memory with TTL to avoid repeated sysinfo queries.
+/// The memory check is performed at most once per MEMORY_CACHE_TTL duration.
+#[cfg(feature = "reqwest")]
+use std::sync::LazyLock;
+#[cfg(feature = "reqwest")]
+use std::sync::Mutex;
+#[cfg(feature = "reqwest")]
+use std::time::{Duration, Instant};
+
+#[cfg(feature = "reqwest")]
+static MEMORY_CACHE: LazyLock<Mutex<(u64, Instant)>> = LazyLock::new(|| {
+    Mutex::new((0, Instant::now() - Duration::from_secs(10))) // Force initial load
+});
+
+#[cfg(feature = "reqwest")]
+const MEMORY_CACHE_TTL: Duration = Duration::from_secs(5);
+
+/// Get cached available system memory, refreshing the cache if it's stale.
+#[cfg(feature = "reqwest")]
+fn cached_available_memory() -> u64 {
+    let mut cache = MEMORY_CACHE.lock().unwrap();
+    if cache.1.elapsed() > MEMORY_CACHE_TTL {
+        *cache = (available_system_memory_bytes(), Instant::now());
+    }
+    cache.0
+}
+
 
 #[cfg(feature = "reqwest")]
 #[async_trait::async_trait]
@@ -87,12 +114,8 @@ impl HttpClient for reqwest::Client {
 
         // Memory guard: check Content-Length against available RAM before buffering.
         if let Some(content_length) = resp.content_length() {
-            let available = tokio::task::spawn_blocking(available_system_memory_bytes)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!("Failed to query available system memory: {e}; skipping guard");
-                    u64::MAX
-                });
+            // Use cached memory value to avoid repeated sysinfo queries (cached for 5 seconds)
+            let available = cached_available_memory();
             let safe_limit = available * 80 / 100;
             if content_length > safe_limit {
                 return Err(WebDriverError::ResponseTooLarge(format!(
@@ -168,7 +191,7 @@ use crate::common::config::BasicAuth;
 pub(crate) fn create_reqwest_client(
     timeout: std::time::Duration,
     basic_auth: Option<BasicAuth>,
-) -> reqwest::Client {
+) -> WebDriverResult<reqwest::Client> {
     use base64::prelude::BASE64_STANDARD;
     use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 
@@ -182,13 +205,14 @@ pub(crate) fn create_reqwest_client(
 
         let mut headers = HeaderMap::new();
         // Mark as sensitive to prevent logging of credentials
-        let mut header_value =
-            HeaderValue::from_str(&auth_value).expect("valid Authorization header");
+        let mut header_value = HeaderValue::from_str(&auth_value).map_err(|e| {
+            WebDriverError::RequestFailed(format!("Invalid Authorization header: {e}"))
+        })?;
         header_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, header_value);
         builder = builder.default_headers(headers);
     }
-    builder.build().expect("Failed to create reqwest client")
+    builder.build().map_err(|e| WebDriverError::RequestFailed(format!("Failed to create reqwest client: {e}")))
 }
 
 // Null client so that we can compile without the `reqwest` feature.
@@ -201,7 +225,9 @@ pub(crate) mod null_client {
     #[async_trait::async_trait]
     impl HttpClient for NullHttpClient {
         async fn send(&self, _: Request<Body<'_>>) -> WebDriverResult<Response<Bytes>> {
-            panic!("Either enable the `reqwest` feature or implement your own `HttpClient`")
+            Err(WebDriverError::RequestFailed(
+                "Either enable the `reqwest` feature or implement your own `HttpClient`".to_string()
+            ))
         }
 
         async fn new(&self) -> Arc<dyn HttpClient> {
@@ -233,6 +259,8 @@ pub(crate) async fn run_webdriver_cmd(
         .header(USER_AGENT, config.user_agent.as_ref());
 
     // Authentication.
+    // NOTE: The Basic Auth header is computed on each request. The cost is ~1µs, which is negligible
+    // compared to the network round-trip time. Caching this value would provide minimal benefit.
     let url_username = server_url.username();
     let url_password = server_url.password();
     if !url_username.is_empty() || url_password.is_some() {
@@ -280,6 +308,14 @@ pub(crate) async fn run_webdriver_cmd(
 }
 
 /// Struct representing a WebDriver command response.
+///
+/// NOTE: This struct currently performs double JSON deserialization in some cases:
+/// 1. The response body is first deserialized into a `serde_json::Value` (stored in `body`)
+/// 2. Callers then extract the "value" field via `value_json()` and deserialize again
+///
+/// TODO: This is a known overhead. A future optimization could deserialize directly to the target
+/// type, bypassing the intermediate `Value` allocation. This would require changes to the
+/// response handling pipeline.
 #[derive(Debug, Clone)]
 pub struct CmdResponse {
     /// The body of the response.
