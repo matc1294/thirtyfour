@@ -397,41 +397,6 @@ impl BiDiSessionBuilder {
     /// ).await?;
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if the URL does not start with `ws://` or `wss://`, or if the host
-    /// portion is empty.
-    #[must_use]
-    /// Set a custom base URL for the BiDi WebSocket connection.
-    ///
-    /// When set, this overrides both the hub-provided WebSocket URL and the
-    /// server-derived URL. The library will append `/session/{session_id}/se/bidi`
-    /// to construct the full connection URL.
-    ///
-    /// Use this when connecting to a separate BiDi server or proxy.
-    ///
-    /// **Note:** When `url_base()` is set, it takes absolute precedence over
-    /// `use_server_url()` and `BidiConnectionType` settings.
-    ///
-    /// # Precedence
-    ///
-    /// The BiDi WebSocket URL is resolved in the following order:
-    ///
-    /// 1. **Custom URL base** (highest priority) - set via `url_base()`
-    /// 2. **Builder flag** - if `use_server_url()` was called
-    /// 3. **Config setting** - `WebDriverConfig::bidi_connection_type`:
-    ///    - `DeriveFromServerUrl` - derive from server URL
-    ///    - `UseHubProvided` (default) - use hub-provided URL
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let bidi = driver.bidi_connect_with_builder(
-    ///     BiDiSessionBuilder::new()
-    ///         .url_base("wss://bidi.grid.example.com:4444")
-    /// ).await?;
-    /// ```
-    ///
     /// # Errors
     ///
     /// Returns an error if the URL does not start with `ws://` or `wss://`,
@@ -661,6 +626,9 @@ impl Future for DispatchFuture {
                     };
 
                     let v: Value = match serde_json::from_str(&text) {
+                        // NOTE: Full JSON parse for routing. A future optimization could
+                        // use a shallow parse (extracting only `type`, `method`, `id`) to
+                        // avoid building the full Value tree for every message.
                         Ok(v) => v,
                         Err(e) => {
                             tracing::warn!("BiDi: failed to parse message: {e}");
@@ -675,12 +643,14 @@ impl Future for DispatchFuture {
                         Some("event") => {
                             let method =
                                 v.get("method").and_then(Value::as_str).unwrap_or("").to_string();
-                            let params = v.get("params").cloned().unwrap_or(Value::Null);
+                            let params = v.get("params").cloned().unwrap_or_else(|| Value::Object(Default::default()));
                             let event = parse_event(&method, params);
 
                             tracing::trace!(method = %method, "BiDi event received");
 
-                            let _ = this.ctx.event_tx.send(event.clone());
+                            if this.ctx.event_tx.send(event.clone()).is_err() {
+                                tracing::warn!("BiDi event dropped: no active receivers for event");
+                            }
                             BiDiSession::broadcast_typed(
                                 &this.ctx.network_tx,
                                 &this.ctx.log_tx,
@@ -1195,12 +1165,14 @@ impl BiDiSession {
                     Some("event") => {
                         let method =
                             v.get("method").and_then(Value::as_str).unwrap_or("").to_string();
-                        let params = v.get("params").cloned().unwrap_or(Value::Null);
+                        let params = v.get("params").cloned().unwrap_or_else(|| Value::Object(Default::default()));
                         let event = parse_event(&method, params);
 
                         tracing::trace!(method = %method, "BiDi event received");
 
-                        let _ = self.event_tx.send(event.clone());
+                        if self.event_tx.send(event.clone()).is_err() {
+                            tracing::warn!("BiDi event dropped: no active receivers for event");
+                        }
                         Self::broadcast_typed(
                             &self.network_tx,
                             &self.log_tx,
@@ -1338,7 +1310,7 @@ impl BiDiSession {
             .map_err(|_| {
                 WebDriverError::BiDi(format!("command '{method}' timed out after {timeout:?}"))
             })?
-            .map_err(|_| WebDriverError::BiDi("response channel closed".to_string()))?
+            .map_err(|_| WebDriverError::BiDi(format!("response channel closed for method: {method}")))?
     }
 
     /// Send a `BiDi` command and await the response.
@@ -1381,7 +1353,7 @@ impl BiDiSession {
                 .await
                 .map_err(|e| WebDriverError::BiDi(format!("WebSocket send failed: {e}")))?;
 
-            rx.await.map_err(|_| WebDriverError::BiDi("response channel closed".to_string()))?
+            rx.await.map_err(|_| WebDriverError::BiDi("response channel closed for command".to_string()))?
         }
     }
 
