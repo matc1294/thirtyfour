@@ -17,6 +17,9 @@ pub enum BidiConnectionType {
 }
 
 /// HTTP Basic Auth credentials for Selenium grid authentication.
+///
+/// Note: `PartialEq` compares the password field directly. The password is
+/// redacted in `Debug` output only.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct BasicAuth {
     /// The username for authentication.

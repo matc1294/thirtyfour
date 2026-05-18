@@ -22,7 +22,7 @@ pub struct PrintParameters {
     pub scale: f64,
     /// Print background
     pub background: bool,
-    /// Dimentions of page
+    /// Dimensions of page
     pub page: PrintPage,
     /// Margins of the print
     pub margin: PrintMargins,

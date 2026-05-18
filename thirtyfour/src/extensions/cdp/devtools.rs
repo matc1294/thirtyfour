@@ -9,7 +9,7 @@ use std::sync::Arc;
 /// the Chrome Devtools Protocol (CDP).
 ///
 /// You can find documentation for the available commands here:
-/// [https://chromedevtools.github.io/devtools-protocol/](https://chromedevtools.github.io/devtools-protocol/])
+/// [https://chromedevtools.github.io/devtools-protocol/](https://chromedevtools.github.io/devtools-protocol/)
 ///
 /// # Example
 /// ```no_run
@@ -145,7 +145,7 @@ impl ChromeDevTools {
     /// For commands that require parameters, use `execute_cdp_with_params()` instead.
     ///
     /// You can find documentation for the available commands here:
-    /// [https://chromedevtools.github.io/devtools-protocol/](https://chromedevtools.github.io/devtools-protocol/])
+    /// [https://chromedevtools.github.io/devtools-protocol/](https://chromedevtools.github.io/devtools-protocol/)
     ///
     /// # Example:
     /// ```no_run
@@ -176,7 +176,7 @@ impl ChromeDevTools {
     /// Execute the specified command with the specified parameter(s).
     ///
     /// You can find documentation for the available commands here:
-    /// [https://chromedevtools.github.io/devtools-protocol/](https://chromedevtools.github.io/devtools-protocol/])
+    /// [https://chromedevtools.github.io/devtools-protocol/](https://chromedevtools.github.io/devtools-protocol/)
     ///
     /// # Example:
     /// ```no_run

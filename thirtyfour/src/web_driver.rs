@@ -39,7 +39,7 @@ pub struct WebDriver {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Webdriver has already quit, can't leak an already quit driver")]
+#[error("Webdriver has already quit, cannot leak an already quit driver")]
 pub struct AlreadyQuit(pub(crate) ());
 
 impl WebDriver {

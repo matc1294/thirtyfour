@@ -87,6 +87,13 @@
 //! while quiting. you can use the feature `debug_sync_quit` to get a backtrace printed if your webdriver ever
 //! quits synchronously
 //!
+//! # Debug Logging
+//!
+//! When debug-level tracing is enabled (`RUST_LOG=thirtyfour=debug`), full WebDriver
+//! request and response bodies are logged, including any sensitive data sent through
+//! the browser (form inputs, cookies, authentication headers, etc.). Use with caution
+//! in CI environments where logs may be persisted.
+//!
 //! ### Advanced element queries and explicit waits
 //!
 //! You can use [`WebDriver::query`] to perform more advanced queries
