@@ -28,13 +28,13 @@ fn indent_lines(message: &str, indent: usize) -> String {
 #[derive(Debug, Deserialize, Clone)]
 pub struct WebDriverErrorValue {
     /// The WebDriver error message.
-    pub message: String,
+    pub(crate) message: String,
     /// This error is returned from the WebDriver.
-    pub error: Option<String>,
+    pub(crate) error: Option<String>,
     /// This stacktrace is returned from the WebDriver.
-    pub stacktrace: Option<String>,
+    pub(crate) stacktrace: Option<String>,
     /// This data is returned from the WebDriver.
-    pub data: Option<serde_json::Value>,
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 impl WebDriverErrorValue {
@@ -47,6 +47,15 @@ impl WebDriverErrorValue {
             data: None,
         }
     }
+
+    /// Get the error message.
+    pub fn message(&self) -> &str { &self.message }
+    /// Get the error type, if any.
+    pub fn error(&self) -> Option<&str> { self.error.as_deref() }
+    /// Get the stacktrace, if any.
+    pub fn stacktrace(&self) -> Option<&str> { self.stacktrace.as_deref() }
+    /// Get the additional data, if any.
+    pub fn data(&self) -> Option<&serde_json::Value> { self.data.as_ref() }
 }
 
 impl Display for WebDriverErrorValue {
@@ -112,18 +121,16 @@ impl Display for WebDriverErrorInfo {
 }
 
 /// WebDriverError is the main error type for thirtyfour
+/// Represents an error returned by the WebDriver.
+///
+/// Internally uses `Box<WebDriverErrorInner>` to keep the error type small (one pointer)
+/// despite having 30+ variants. This is an intentional design choice — removing the `Box`
+/// would make `WebDriverError` the size of the largest variant.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub struct WebDriverError(Box<WebDriverErrorInner>);
 
 macro_rules! make_enum_variant_func {
-    ($enum_name: ident $variant_name: ident()) => {
-        #[allow(non_snake_case)]
-        #[allow(missing_docs)]
-        pub fn $variant_name() -> Self {
-            Self::from_inner($enum_name::$variant_name())
-        }
-    };
     ($enum_name: ident $variant_name: ident($_1: ty)) => {
         #[allow(non_snake_case)]
         #[allow(missing_docs)]
