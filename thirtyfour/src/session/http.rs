@@ -79,9 +79,13 @@ static MEMORY_CACHE: LazyLock<Mutex<(u64, Instant)>> = LazyLock::new(|| {
 const MEMORY_CACHE_TTL: Duration = Duration::from_secs(5);
 
 /// Get cached available system memory, refreshing the cache if it's stale.
+///
+/// NOTE: `available_system_memory_bytes()` is blocking but completes in <1ms
+/// and runs at most once per `MEMORY_CACHE_TTL`. This is an acceptable trade-off
+/// vs. the overhead of `spawn_blocking` on every request.
 #[cfg(feature = "reqwest")]
 fn cached_available_memory() -> u64 {
-    let mut cache = MEMORY_CACHE.lock().unwrap();
+    let mut cache = MEMORY_CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if cache.1.elapsed() > MEMORY_CACHE_TTL {
         *cache = (available_system_memory_bytes(), Instant::now());
     }
