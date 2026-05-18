@@ -66,6 +66,8 @@ where
 {
     for func in filters {
         let tmp_elements = std::mem::take(&mut elements);
+        // Pre-allocate to avoid reallocations — matching set is at most tmp_elements.len()
+        elements = Vec::with_capacity(tmp_elements.len());
         for element in tmp_elements {
             if func.as_ref().call(element.clone()).await? {
                 elements.push(element);
