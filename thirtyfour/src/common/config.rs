@@ -67,7 +67,7 @@ pub struct WebDriverConfig {
 
 impl Default for WebDriverConfig {
     fn default() -> Self {
-        Self::builder().build().expect("default values failed")
+        Self::builder().build().expect("default config values are valid")
     }
 }
 
