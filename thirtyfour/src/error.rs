@@ -28,13 +28,13 @@ fn indent_lines(message: &str, indent: usize) -> String {
 #[derive(Debug, Deserialize, Clone)]
 pub struct WebDriverErrorValue {
     /// The WebDriver error message.
-    pub message: String,
+    pub(crate) message: String,
     /// This error is returned from the WebDriver.
-    pub error: Option<String>,
+    pub(crate) error: Option<String>,
     /// This stacktrace is returned from the WebDriver.
-    pub stacktrace: Option<String>,
+    pub(crate) stacktrace: Option<String>,
     /// This data is returned from the WebDriver.
-    pub data: Option<serde_json::Value>,
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 impl WebDriverErrorValue {
@@ -47,6 +47,15 @@ impl WebDriverErrorValue {
             data: None,
         }
     }
+
+    /// Get the error message.
+    pub fn message(&self) -> &str { &self.message }
+    /// Get the error type, if any.
+    pub fn error(&self) -> Option<&str> { self.error.as_deref() }
+    /// Get the stacktrace, if any.
+    pub fn stacktrace(&self) -> Option<&str> { self.stacktrace.as_deref() }
+    /// Get the additional data, if any.
+    pub fn data(&self) -> Option<&serde_json::Value> { self.data.as_ref() }
 }
 
 impl Display for WebDriverErrorValue {
@@ -112,18 +121,16 @@ impl Display for WebDriverErrorInfo {
 }
 
 /// WebDriverError is the main error type for thirtyfour
+/// Represents an error returned by the WebDriver.
+///
+/// Internally uses `Box<WebDriverErrorInner>` to keep the error type small (one pointer)
+/// despite having 30+ variants. This is an intentional design choice — removing the `Box`
+/// would make `WebDriverError` the size of the largest variant.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 pub struct WebDriverError(Box<WebDriverErrorInner>);
 
 macro_rules! make_enum_variant_func {
-    ($enum_name: ident $variant_name: ident()) => {
-        #[allow(non_snake_case)]
-        #[allow(missing_docs)]
-        pub fn $variant_name() -> Self {
-            Self::from_inner($enum_name::$variant_name())
-        }
-    };
     ($enum_name: ident $variant_name: ident($_1: ty)) => {
         #[allow(non_snake_case)]
         #[allow(missing_docs)]
@@ -287,6 +294,9 @@ webdriver_err! {
         SessionCreateError(String),
         #[error("BiDi error: {0}")]
         BiDi(String),
+        #[error("Response body too large to process safely: {0}")]
+        ResponseTooLarge(String),
+
         #[error("BiDi dispatch not started: {0}")]
         BiDiDispatchNotStarted(String),
         #[error("BiDi dispatch timeout: {0}")]
@@ -437,4 +447,16 @@ mod tests {
         let err = WebDriverError::BiDi("connection refused".to_string());
         assert!(err.to_string().contains("BiDi error: connection refused"));
     }
+    #[test]
+    fn test_response_too_large_error_message() {
+        let err = WebDriverError::ResponseTooLarge(
+            "Response body (600000000 bytes) exceeds safe memory limit \
+             (500000000 bytes). Available RAM: 625000000 bytes"
+                .to_string(),
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("Response body"), "message should mention response body");
+        assert!(msg.contains("exceeds safe memory limit"), "message should mention limit");
+    }
+
 }

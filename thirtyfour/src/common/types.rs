@@ -109,7 +109,10 @@ pub struct ElementRect {
 
 impl ElementRect {
     /// The coordinates of the rectangle center point, rounded to integers.
+    ///
+    /// Screen coordinates always fit within `i64`; the cast is safe in practice.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn icenter(&self) -> (i64, i64) {
         let (x, y) = self.center();
         (x.round() as i64, y.round() as i64)
@@ -427,6 +430,12 @@ impl Default for TimeoutConfiguration {
     }
 }
 
+/// Convert a `Duration` to milliseconds as `u64`, saturating at `u64::MAX` if
+/// the value overflows (which would require a duration exceeding ~584 million years).
+fn duration_to_millis_u64(d: Duration) -> u64 {
+    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
 impl TimeoutConfiguration {
     /// Create a new `TimeoutConfiguration`.
     pub fn new(
@@ -435,9 +444,9 @@ impl TimeoutConfiguration {
         implicit: Option<Duration>,
     ) -> Self {
         TimeoutConfiguration {
-            script: script.map(|x| x.as_millis() as u64),
-            page_load: page_load.map(|x| x.as_millis() as u64),
-            implicit: implicit.map(|x| x.as_millis() as u64),
+            script: script.map(duration_to_millis_u64),
+            page_load: page_load.map(duration_to_millis_u64),
+            implicit: implicit.map(duration_to_millis_u64),
         }
     }
 
@@ -448,7 +457,7 @@ impl TimeoutConfiguration {
 
     /// Set the script timeout.
     pub fn set_script(&mut self, timeout: Option<Duration>) {
-        self.script = timeout.map(|x| x.as_millis() as u64);
+        self.script = timeout.map(duration_to_millis_u64);
     }
 
     /// Get the page load timeout, if set.
@@ -458,7 +467,7 @@ impl TimeoutConfiguration {
 
     /// Set the page load timeout.
     pub fn set_page_load(&mut self, timeout: Option<Duration>) {
-        self.page_load = timeout.map(|x| x.as_millis() as u64);
+        self.page_load = timeout.map(duration_to_millis_u64);
     }
 
     /// Get the implicit wait timeout, if set.
@@ -468,7 +477,7 @@ impl TimeoutConfiguration {
 
     /// Set the implicit wait timeout.
     pub fn set_implicit(&mut self, timeout: Option<Duration>) {
-        self.implicit = timeout.map(|x| x.as_millis() as u64);
+        self.implicit = timeout.map(duration_to_millis_u64);
     }
 }
 

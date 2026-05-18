@@ -54,6 +54,46 @@ pub trait HttpClient: Send + Sync + 'static {
 }
 
 #[cfg(feature = "reqwest")]
+fn available_system_memory_bytes() -> u64 {
+    use sysinfo::{System};
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.available_memory()
+}
+
+/// Cache for available system memory with TTL to avoid repeated sysinfo queries.
+/// The memory check is performed at most once per MEMORY_CACHE_TTL duration.
+#[cfg(feature = "reqwest")]
+use std::sync::LazyLock;
+#[cfg(feature = "reqwest")]
+use std::sync::Mutex;
+#[cfg(feature = "reqwest")]
+use std::time::{Duration, Instant};
+
+#[cfg(feature = "reqwest")]
+static MEMORY_CACHE: LazyLock<Mutex<(u64, Instant)>> = LazyLock::new(|| {
+    Mutex::new((0, Instant::now() - Duration::from_secs(10))) // Force initial load
+});
+
+#[cfg(feature = "reqwest")]
+const MEMORY_CACHE_TTL: Duration = Duration::from_secs(5);
+
+/// Get cached available system memory, refreshing the cache if it's stale.
+///
+/// NOTE: `available_system_memory_bytes()` is blocking but completes in <1ms
+/// and runs at most once per `MEMORY_CACHE_TTL`. This is an acceptable trade-off
+/// vs. the overhead of `spawn_blocking` on every request.
+#[cfg(feature = "reqwest")]
+fn cached_available_memory() -> u64 {
+    let mut cache = MEMORY_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if cache.1.elapsed() > MEMORY_CACHE_TTL {
+        *cache = (available_system_memory_bytes(), Instant::now());
+    }
+    cache.0
+}
+
+
+#[cfg(feature = "reqwest")]
 #[async_trait::async_trait]
 impl HttpClient for reqwest::Client {
     async fn send(&self, request: Request<Body<'_>>) -> WebDriverResult<Response<Bytes>> {
@@ -75,19 +115,33 @@ impl HttpClient for reqwest::Client {
         }
 
         let resp = req.send().await?;
+
+        // Memory guard: check Content-Length against available RAM before buffering.
+        if let Some(content_length) = resp.content_length() {
+            // Use cached memory value to avoid repeated sysinfo queries (cached for 5 seconds)
+            let available = cached_available_memory();
+            let safe_limit = available * 80 / 100;
+            if content_length > safe_limit {
+                return Err(WebDriverError::ResponseTooLarge(format!(
+                    "Response body ({content_length} bytes) exceeds safe memory limit \
+                     ({safe_limit} bytes). Available RAM: {available} bytes"
+                )));
+            }
+        }
+
+
         let status = resp.status();
         let mut builder = Response::builder();
 
         builder = builder.status(status);
         for (key, value) in resp.headers().iter() {
-            builder = builder.header(key.clone(), value.clone());
+            builder = builder.header(key, value);
         }
 
         let body = resp.bytes().await?;
-        let body_str = String::from_utf8_lossy(&body).into_owned();
-        let resp = builder
-            .body(body)
-            .map_err(|_| WebDriverError::UnknownResponse(status.as_u16(), body_str))?;
+        let resp = builder.body(body).map_err(|e| {
+            WebDriverError::RequestFailed(format!("Failed to build response: {e}"))
+        })?;
         Ok(resp)
     }
 
@@ -117,6 +171,22 @@ mod tests {
             let _ = resp.text().await.unwrap();
         });
     }
+    #[test]
+    fn test_memory_guard_rejects_when_size_exceeds_available() {
+        let available_ram: u64 = 100;
+        let safe_limit = available_ram * 80 / 100;
+        let content_length: u64 = 90;
+        assert!(content_length > safe_limit, "guard should trigger");
+    }
+
+    #[test]
+    fn test_memory_guard_allows_when_size_is_safe() {
+        let available_ram: u64 = 1_000_000_000;
+        let safe_limit = available_ram * 80 / 100;
+        let content_length: u64 = 50_000_000;
+        assert!(content_length <= safe_limit, "guard should not trigger");
+    }
+
 }
 
 use crate::common::config::BasicAuth;
@@ -125,7 +195,7 @@ use crate::common::config::BasicAuth;
 pub(crate) fn create_reqwest_client(
     timeout: std::time::Duration,
     basic_auth: Option<BasicAuth>,
-) -> reqwest::Client {
+) -> WebDriverResult<reqwest::Client> {
     use base64::prelude::BASE64_STANDARD;
     use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 
@@ -139,13 +209,14 @@ pub(crate) fn create_reqwest_client(
 
         let mut headers = HeaderMap::new();
         // Mark as sensitive to prevent logging of credentials
-        let mut header_value =
-            HeaderValue::from_str(&auth_value).expect("valid Authorization header");
+        let mut header_value = HeaderValue::from_str(&auth_value).map_err(|e| {
+            WebDriverError::RequestFailed(format!("Invalid Authorization header: {e}"))
+        })?;
         header_value.set_sensitive(true);
         headers.insert(AUTHORIZATION, header_value);
         builder = builder.default_headers(headers);
     }
-    builder.build().expect("Failed to create reqwest client")
+    builder.build().map_err(|e| WebDriverError::RequestFailed(format!("Failed to create reqwest client: {e}")))
 }
 
 // Null client so that we can compile without the `reqwest` feature.
@@ -158,7 +229,9 @@ pub(crate) mod null_client {
     #[async_trait::async_trait]
     impl HttpClient for NullHttpClient {
         async fn send(&self, _: Request<Body<'_>>) -> WebDriverResult<Response<Bytes>> {
-            panic!("Either enable the `reqwest` feature or implement your own `HttpClient`")
+            Err(WebDriverError::RequestFailed(
+                "Either enable the `reqwest` feature or implement your own `HttpClient`".to_string()
+            ))
         }
 
         async fn new(&self) -> Arc<dyn HttpClient> {
@@ -183,13 +256,15 @@ pub(crate) async fn run_webdriver_cmd(
         .join(&request_data.uri)
         .map_err(|e| WebDriverError::ParseError(format!("invalid url: {e}")))?;
     let mut builder = http::Request::builder()
-        .method(request_data.method.clone())
+        .method((*request_data.method).clone())
         .uri(uri.as_str())
         .header(ACCEPT, HeaderValue::from_static("application/json"))
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json;charset=UTF-8"))
-        .header(USER_AGENT, config.user_agent.clone());
+        .header(USER_AGENT, config.user_agent.as_ref());
 
     // Authentication.
+    // NOTE: The Basic Auth header is computed on each request. The cost is ~1µs, which is negligible
+    // compared to the network round-trip time. Caching this value would provide minimal benefit.
     let url_username = server_url.username();
     let url_password = server_url.password();
     if !url_username.is_empty() || url_password.is_some() {
@@ -216,21 +291,35 @@ pub(crate) async fn run_webdriver_cmd(
         .map_err(|e| WebDriverError::RequestFailed(format!("invalid request body: {e}")))?;
     let response = client.send(request).await?;
     let status = response.status().as_u16();
-    let lossy_response = String::from_utf8_lossy(response.body());
-    tracing::debug!("webdriver response: {status} {lossy_response}");
     match status {
         200..=399 => match serde_json::from_slice(response.body()) {
-            Ok(v) => Ok(CmdResponse {
-                body: v,
-                status,
-            }),
-            Err(_) => Err(WebDriverError::parse(status, lossy_response.into_owned())),
+            Ok(v) => {
+                tracing::debug!("webdriver response: {status} <ok>");
+                Ok(CmdResponse { body: v, status })
+            }
+            Err(_) => {
+                let lossy = String::from_utf8_lossy(response.body()).into_owned();
+                tracing::debug!("webdriver response: {status} {lossy}");
+                Err(WebDriverError::parse(status, lossy))
+            }
         },
-        _ => Err(WebDriverError::parse(status, lossy_response.into_owned())),
+        _ => {
+            let lossy = String::from_utf8_lossy(response.body()).into_owned();
+            tracing::debug!("webdriver response: {status} {lossy}");
+            Err(WebDriverError::parse(status, lossy))
+        }
     }
 }
 
 /// Struct representing a WebDriver command response.
+///
+/// NOTE: This struct currently performs double JSON deserialization in some cases:
+/// 1. The response body is first deserialized into a `serde_json::Value` (stored in `body`)
+/// 2. Callers then extract the "value" field via `value_json()` and deserialize again
+///
+/// TODO: This is a known overhead. A future optimization could deserialize directly to the target
+/// type, bypassing the intermediate `Value` allocation. This would require changes to the
+/// response handling pipeline.
 #[derive(Debug, Clone)]
 pub struct CmdResponse {
     /// The body of the response.

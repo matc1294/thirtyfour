@@ -191,7 +191,7 @@ impl ActionSource<KeyAction> {
         let duration = match duration {
             Some(duration) => {
                 let millis = duration.as_millis();
-                u64::try_from(millis).ok().unwrap_or(u64::MAX)
+                u64::try_from(millis).unwrap_or(u64::MAX)
             }
             None => 0,
         };
@@ -249,7 +249,7 @@ impl ActionSource<PointerAction> {
         let duration = match duration {
             Some(duration) => {
                 let millis = duration.as_millis();
-                u64::try_from(millis).ok().unwrap_or(u64::MAX)
+                u64::try_from(millis).unwrap_or(u64::MAX)
             }
             None => 250,
         };

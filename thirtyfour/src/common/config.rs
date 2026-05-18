@@ -1,10 +1,8 @@
-use crate::error::WebDriverError;
 use crate::{
     extensions::query::{ElementPollerWithTimeout, IntoElementPoller},
     prelude::WebDriverResult,
 };
 use const_format::formatcp;
-use http::HeaderValue;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,6 +17,9 @@ pub enum BidiConnectionType {
 }
 
 /// HTTP Basic Auth credentials for Selenium grid authentication.
+///
+/// Note: `PartialEq` compares the password field directly. The password is
+/// redacted in `Debug` output only.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct BasicAuth {
     /// The username for authentication.
@@ -58,7 +59,7 @@ pub struct WebDriverConfig {
     /// The default poller to use when performing element queries or waits.
     pub poller: Arc<dyn IntoElementPoller + Send + Sync>,
     /// The user agent to use when sending commands to the webdriver server.
-    pub user_agent: HeaderValue,
+    pub user_agent: Arc<str>,
     /// The timeout duration for reqwest client requests.
     pub reqwest_timeout: Duration,
     /// Configuration for BiDi connection URL derivation.
@@ -69,7 +70,7 @@ pub struct WebDriverConfig {
 
 impl Default for WebDriverConfig {
     fn default() -> Self {
-        Self::builder().build().expect("default values failed")
+        Self::builder().build().expect("default config values are valid")
     }
 }
 
@@ -81,7 +82,7 @@ impl WebDriverConfig {
     }
 
     /// The default user agent.
-    pub const DEFAULT_USER_AGENT: HeaderValue = {
+    pub const DEFAULT_USER_AGENT: &'static str = {
         //noinspection RsReplaceMatchExpr
         const RUST_VER: &str = match option_env!("RUSTC_VERSION") {
             Some(ver) => ver,
@@ -96,18 +97,8 @@ impl WebDriverConfig {
             std::env::consts::OS
         );
 
-        HeaderValue::from_static(HEADER)
+        HEADER
     };
-
-    /// Get the default user agent.
-    #[deprecated(
-        since = "0.34.1",
-        note = "This associated function is now a constant `WebDriverConfig::DEFAULT_USER_AGENT`"
-    )]
-    #[must_use]
-    pub fn default_user_agent() -> HeaderValue {
-        Self::DEFAULT_USER_AGENT
-    }
 }
 
 /// Builder for `WebDriverConfig`.
@@ -115,7 +106,7 @@ impl WebDriverConfig {
 pub struct WebDriverConfigBuilder {
     keep_alive: bool,
     poller: Option<Arc<dyn IntoElementPoller + Send + Sync>>,
-    user_agent: Option<WebDriverResult<HeaderValue>>,
+    user_agent: Option<Arc<str>>,
     reqwest_timeout: Duration,
     bidi_connection_type: BidiConnectionType,
     basic_auth: Option<BasicAuth>,
@@ -159,10 +150,9 @@ impl WebDriverConfigBuilder {
     #[must_use]
     pub fn user_agent<V>(mut self, user_agent: V) -> Self
     where
-        HeaderValue: TryFrom<V>,
-        <HeaderValue as TryFrom<V>>::Error: Into<WebDriverError>,
+        V: Into<Arc<str>>,
     {
-        self.user_agent = Some(user_agent.try_into().map_err(Into::into));
+        self.user_agent = Some(user_agent.into());
         self
     }
 
@@ -215,7 +205,7 @@ impl WebDriverConfigBuilder {
         Ok(WebDriverConfig {
             keep_alive: self.keep_alive,
             poller: self.poller.unwrap_or_else(|| Arc::new(ElementPollerWithTimeout::default())),
-            user_agent: self.user_agent.transpose()?.unwrap_or(WebDriverConfig::DEFAULT_USER_AGENT),
+            user_agent: self.user_agent.unwrap_or_else(|| Arc::from(WebDriverConfig::DEFAULT_USER_AGENT)),
             reqwest_timeout: self.reqwest_timeout,
             bidi_connection_type: self.bidi_connection_type,
             basic_auth: self.basic_auth,

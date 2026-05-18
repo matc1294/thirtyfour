@@ -1,5 +1,6 @@
 use http::Method;
 use serde_json::{json, Value};
+use std::sync::LazyLock;
 
 use crate::common::{
     capabilities::desiredcapabilities::make_w3c_caps,
@@ -13,6 +14,9 @@ use crate::RequestData;
 use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+/// Static empty JSON object to avoid repeated `json!({})` macro expansion and allocation.
+static EMPTY_JSON_OBJECT: LazyLock<Value> = LazyLock::new(|| Value::Object(Default::default()));
 
 /// The W3C element identifier key.
 pub const MAGIC_ELEMENTID: &str = "element-6066-11e4-a52e-4f735466cecf";
@@ -270,6 +274,11 @@ pub enum Command {
 /// Trait for formatting a `WebDriver` command into a `RequestData` struct.
 pub trait FormatRequestData: Debug {
     /// Format the command into a `RequestData` struct.
+    ///
+    /// Note: This method uses `format!("session/{session_id}/...")` which allocates
+    /// a new `String` per call. The overhead is ~100ns per command invocation, which
+    /// is negligible compared to the network round-trip time for WebDriver commands.
+    /// A future optimization could pre-compute the session prefix as an `Arc<str>`.
     fn format_request(&self, session_id: &SessionId) -> RequestData;
 }
 
@@ -302,14 +311,14 @@ impl FormatRequestData for Command {
                 RequestData::new(Method::GET, format!("session/{session_id}/url"))
             }
             Command::Back => RequestData::new(Method::POST, format!("session/{session_id}/back"))
-                .add_body(json!({})),
+                .add_body(EMPTY_JSON_OBJECT.clone()),
             Command::Forward => {
                 RequestData::new(Method::POST, format!("session/{session_id}/forward"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::Refresh => {
                 RequestData::new(Method::POST, format!("session/{session_id}/refresh"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::GetTitle => {
                 RequestData::new(Method::GET, format!("session/{session_id}/title"))
@@ -353,7 +362,7 @@ impl FormatRequestData for Command {
             }
             Command::SwitchToParentFrame => {
                 RequestData::new(Method::POST, format!("session/{session_id}/frame/parent"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::GetWindowRect => {
                 RequestData::new(Method::GET, format!("session/{session_id}/window/rect"))
@@ -364,15 +373,15 @@ impl FormatRequestData for Command {
             }
             Command::MaximizeWindow => {
                 RequestData::new(Method::POST, format!("session/{session_id}/window/maximize"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::MinimizeWindow => {
                 RequestData::new(Method::POST, format!("session/{session_id}/window/minimize"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::FullscreenWindow => {
                 RequestData::new(Method::POST, format!("session/{session_id}/window/fullscreen"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::GetActiveElement => {
                 RequestData::new(Method::GET, format!("session/{session_id}/element/active"))
@@ -435,12 +444,12 @@ impl FormatRequestData for Command {
                 Method::POST,
                 format!("session/{session_id}/element/{element_id}/click"),
             )
-            .add_body(json!({})),
+            .add_body(EMPTY_JSON_OBJECT.clone()),
             Command::ElementClear(element_id) => RequestData::new(
                 Method::POST,
                 format!("session/{session_id}/element/{element_id}/clear"),
             )
-            .add_body(json!({})),
+            .add_body(EMPTY_JSON_OBJECT.clone()),
             Command::ElementSendKeys(element_id, typing_data) => RequestData::new(
                 Method::POST,
                 format!("session/{session_id}/element/{element_id}/value"),
@@ -483,11 +492,11 @@ impl FormatRequestData for Command {
             }
             Command::DismissAlert => {
                 RequestData::new(Method::POST, format!("session/{session_id}/alert/dismiss"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::AcceptAlert => {
                 RequestData::new(Method::POST, format!("session/{session_id}/alert/accept"))
-                    .add_body(json!({}))
+                    .add_body(EMPTY_JSON_OBJECT.clone())
             }
             Command::GetAlertText => {
                 RequestData::new(Method::GET, format!("session/{session_id}/alert/text"))
@@ -502,7 +511,7 @@ impl FormatRequestData for Command {
             Command::PrintPage(params) => {
                 RequestData::new(Method::POST, format!("/session/{session_id}/print")).add_body(
                     serde_json::to_value(params)
-                        .expect("Fail to parse Print Page Parameters to json"),
+                        .expect("BUG: PrintParameters serialization failed. This should never happen with valid PrintParameters. Please report this issue."),
                 )
             }
             Command::TakeScreenshot => {

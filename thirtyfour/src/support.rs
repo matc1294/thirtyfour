@@ -31,7 +31,7 @@ static GLOBAL_RT: LazyLock<tokio::runtime::Handle> = LazyLock::new(|| {
     }
 
     no_unwind(|| {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("failed to create thirtyfour global tokio runtime");
         let handle = rt.handle().clone();
 
         // drive the runtime

@@ -34,15 +34,23 @@ impl TryFrom<syn::DeriveInput> for ParsedOptions {
                     .named
                     .into_iter()
                     .map(|x| ParsedField {
-                        ident: x.ident.expect("Tuple or unit structs not supported"),
+                        ident: x.ident.expect("named fields always have identifiers"),
                         ty: x.ty,
                         attrs: x.attrs,
                     })
                     .collect(),
-                _ => panic!("Tuple or unit structs not supported"),
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        &input.ident,
+                        "Component derive only supports named fields. Tuple and unit structs are not supported.",
+                    ))
+                }
             },
             Data::Enum(_) | Data::Union(_) => {
-                panic!("Component attribute does not support enums or unions")
+                return Err(syn::Error::new_spanned(
+                    &input.ident,
+                    "Component derive only supports structs. Enums and unions are not supported.",
+                ))
             }
         };
 
@@ -552,7 +560,7 @@ impl ByTokens {
 
         match ret.len() {
             0 => panic!("no selector found"),
-            1 => ret.into_iter().next().unwrap(),
+            1 => ret.into_iter().next().expect("ret.len() == 1 guarantees at least one element"),
             _ => panic!("multiple selectors are not supported"),
         }
     }
@@ -750,7 +758,7 @@ fn is_multi_resolver(path: &syn::Path) -> bool {
             ],
         ) {
             // If we have `ElementResolver<Vec<T>>` then use multi.
-            let segment = path.segments.last().unwrap(); // Must be at least one.
+            let segment = path.segments.last().expect("path must have at least one segment");
             if let PathArguments::AngleBracketed(x) = &segment.arguments {
                 for arg in &x.args {
                     if let GenericArgument::Type(syn::Type::Path(t)) = arg {

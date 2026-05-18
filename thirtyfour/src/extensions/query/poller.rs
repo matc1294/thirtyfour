@@ -60,15 +60,12 @@ impl ElementPoller for ElementPollerWithTimeout {
             return false;
         }
 
-        // The Next poll is due no earlier than this long after the first poll started.
-        let minimum_elapsed = self.interval.saturating_mul(self.cur_tries);
+        // Use fixed interval, capped by remaining timeout to prevent excessive delays.
+        let remaining = self.timeout.saturating_sub(self.start.elapsed());
+        let sleep_duration = self.interval.min(remaining);
 
-        // But this much time has elapsed since the first poll started.
-        let actual_elapsed = self.start.elapsed();
-
-        if actual_elapsed < minimum_elapsed {
-            // So we need to wait this much longer.
-            sleep(minimum_elapsed - actual_elapsed).await;
+        if sleep_duration > Duration::ZERO {
+            sleep(sleep_duration).await;
         }
 
         true

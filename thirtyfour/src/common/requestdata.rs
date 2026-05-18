@@ -8,7 +8,7 @@ use http::Method;
 #[derive(Debug, Clone)]
 pub struct RequestData {
     /// The request method.
-    pub method: Method,
+    pub method: Arc<Method>,
     /// The request URI.
     pub uri: Arc<str>,
     /// The request body.
@@ -19,7 +19,7 @@ impl RequestData {
     /// Create a new `RequestData` struct.
     pub fn new<S: IntoArcStr>(method: Method, uri: S) -> Self {
         RequestData {
-            method,
+            method: Arc::new(method),
             uri: uri.into(),
             body: None,
         }
@@ -46,5 +46,18 @@ impl Display for RequestData {
         } else {
             write!(f, "{} {}", self.method, self.uri)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_request_data_method_clone_is_arc() {
+        let rd = RequestData::new(Method::GET, "/session");
+        let cloned = rd.clone();
+        assert_eq!(rd.method, cloned.method);
+        assert!(Arc::ptr_eq(&rd.method, &cloned.method));
     }
 }
